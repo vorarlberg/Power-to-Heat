@@ -1,0 +1,633 @@
+/************************************************************
+ * Heizstabregelung V2 – ioBroker JavaScript
+ * PWM-Ausgabe: Raspberry Pi GPIO 13 (hardware PWM) @ 200 Hz
+ * Dutycycle-Mapping: 0 W -> 0% / 3500 W -> 100%
+ ************************************************************/
+
+/* ==========================================================
+   1) KONFIGURATION – ALLE ANPASSBAREN WERTE & DATENPUNKTE
+   ========================================================== */
+
+// ---- Leistung & PWM ----
+const CFG_MAX_WATT            = 3500;        // Max. Heizstablestung in Watt
+const CFG_PWM_GPIO            = 13;          // GPIO Pin (hardware PWM-fähig)
+const CFG_PWM_FREQ_HZ         = 200;         // PWM-Frequenz in Hz
+const CFG_PWM_DUTY_FULLSCALE  = 1_000_000;   // pigpio 'hp' Duty-Skala 0..1.000.000
+
+// ---- Zeitliche Parameter (ms) ----
+const T_CAL_STEP_DELAY_MS     = 10_000;      // Wartezeit pro Kalibrier-Schritt
+const T_AFTER_SETPOINT_MS     = 10_000;      // Wartezeit nach Solländerung vor Istprüfung
+const T_SELFTEST_DURATION_MS  = 10_000;      // Selbsttest: Wartezeit bei 500 W
+const T_SELFTEST_FAIL_WAIT_MS = 5 * 60_000;  // 5 Minuten bis Auto-Kalibrierung
+const T_SURPLUS_INTERVAL_MS   = 30_000;      // Intervall Überschussberechnung
+const T_WATCHDOG_MAX_AGE_MS   = 10_000;      // Max. Alter externer DPs bis Abschaltung
+const T_BLINK_INTERVAL_MS     = 800;         // Blink-Intervall Ampel
+
+// ---- Überschussregelung ----
+const SURPLUS_MIN_WATT        = 500;         // Mindest-Überschuss zum Einschalten
+const SURPLUS_SAFETY_WATT     = 100;         // Sicherheitsabzug vom berechneten Überschuss
+const OFFS_PER_HOUR_LIMIT     = 5;           // Max. Abschaltungen pro Stunde bis Sperre
+const OFFS_WINDOW_MS          = 60 * 60_000; // 1 Stunde Fenster
+
+// ---- Temperaturgrenzen & WW-Sicherstellung ----
+const TEMP_VALID_MIN_C        = 10;          // Gültigkeitsbereich Sensoren
+const TEMP_VALID_MAX_C        = 80;
+const TEMP_DEFAULT_MIN_C      = 45;          // DP TempMin (falls nicht gesetzt)
+const TEMP_DEFAULT_MAX_C      = 65;          // DP TempMax (falls nicht gesetzt)
+const TEMP_DELTA_REGEL_C      = 3;           // DeltaTRegelbereich (Hysterese)
+
+// ---- Externe Mess-Datenpunkte (Adapter) – BITTE PRÜFEN/ANPASSEN ----
+const DP_EXT_IST_WATT         = 'modbus.0.holdingRegisters.1000';      // Istleistung Heizstab (W)
+const DP_EXT_PV_WATT          = 'solarlog.0.power.PV';                 // PV-Leistung (W)
+const DP_EXT_HAUS_WATT        = 'solarlog.0.power.Home';               // Hausverbrauch inkl. Heizstab (W)
+const DP_EXT_TEMP_EXTERN      = 'mqtt.0.sensors.boiler.extTemp';       // °C
+const DP_EXT_TEMP_INTERN      = 'mqtt.0.sensors.boiler.intTemp';       // °C
+const DP_EXT_PV_PRODUKTION    = ''; // falls vorhanden bool-Flag, sonst leer lassen
+
+// ---- Externe Ampel-Lampen (werden NICHT vom Skript angelegt) ----
+const DP_LAMP_GELB            = '0_userdata.0.Heizstab.Lampen.Gelb';
+const DP_LAMP_GRUEN           = '0_userdata.0.Heizstab.Lampen.Grün';
+const DP_LAMP_ROT             = '0_userdata.0.Heizstab.Lampen.Rot';
+
+// ---- Interne Userdata-DPs (werden erstellt) ----
+const BASE = '0_userdata.0.Heizstab.V2.';
+
+// Steuerung
+const DP_CTL_ENABLE                 = BASE + 'Control.RegelungAKTIV';          // ro bool
+const DP_CTL_STATUS                 = BASE + 'Control.StatusText';             // ro string
+const DP_CTL_RESET_BTN              = BASE + 'Control.Reset';                  // button
+const DP_CTL_CAL_REQUIRED           = BASE + 'Control.Kalibrierung.Erforderlich'; // ro bool
+const DP_CTL_CAL_START_BTN          = BASE + 'Control.Kalibrierung.Start';     // button
+const DP_CTL_CAL_ACTIVE             = BASE + 'Control.Kalibrierung.Aktiv';     // ro bool
+const DP_CTL_CAL_TABLE              = BASE + 'Control.Kalibrierung.TabelleJSON'; // ro json-string
+const DP_CTL_SELFTEST_ACTIVE        = BASE + 'Control.Selbsttest.Aktiv';       // ro bool
+const DP_CTL_DISABLE_UNTIL_EOD      = BASE + 'Control.Sperre.BisTagesende';    // ro bool
+
+// Ampel-Info (nur Info-String, echte Lampen über DP_LAMP_*)
+const DP_UI_AMPEL                   = BASE + 'UI.Ampel';
+
+// Diagnose / Info
+const DP_INFO_LAST_ERROR            = BASE + 'Info.LetzterFehler';             // ro string
+const DP_INFO_OFFS_LAST_HOUR        = BASE + 'Info.AbschaltungenLetzteStunde'; // ro number
+const DP_INFO_LAST_CMD_WATT         = BASE + 'Info.LetzterSollwertW';          // ro number W
+const DP_INFO_LAST_IST_WATT         = BASE + 'Info.LetzterIstwertW';           // ro number W
+const DP_INFO_SURPLUS_WATT          = BASE + 'Info.BerechneterUeberschussW';   // ro number W
+const DP_INFO_WATCHDOG              = BASE + 'Info.WatchdogMeldung';           // ro string
+
+// Temperatur-Setpoints (rw)
+const DP_TEMP_MIN                   = BASE + 'Temperatur.TempMin';             // °C
+const DP_TEMP_MAX                   = BASE + 'Temperatur.TempMax';             // °C
+const DP_TEMP_MIN_AKTIV             = BASE + 'Temperatur.TempMinAKTIV';        // bool
+const DP_TEMP_DELTA_REGEL           = BASE + 'Temperatur.DeltaTRegelbereich';  // °C
+
+/* ==========================================================
+   2) HILFSFUNKTIONEN ZUM ANLEGEN & AKTUALISIEREN VON DPs
+   ========================================================== */
+
+// Optionen direkt in den common-Block (wie in deinem Beispiel).
+// Existiert der DP bereits, werden die common-Werte per extendObject aktualisiert.
+function ensureStateCommon(id, common, initial) {
+  const name = id.split('.').slice(-1)[0];
+
+  if (!existsState(id)) {
+    const opts = Object.assign({ name, def: initial }, common);
+    createState(id, initial, opts);
+  } else {
+    try {
+      const obj = getObject(id) || {};
+      const mergedCommon = Object.assign({}, (obj.common || {}), common);
+      extendObject(id, { common: mergedCommon });
+      const st = getState(id);
+      if (!st || typeof st.val === 'undefined') setState(id, initial, true);
+    } catch (e) {
+      log('extendObject failed for ' + id + ': ' + e, 'warn');
+    }
+  }
+}
+
+function ensureButton(id, name) {
+  ensureStateCommon(id, { type:'boolean', role:'button', name, read:true, write:true }, false);
+}
+
+// Logging / Status
+function logWarn(msg) { log(msg, 'warn'); setState(DP_INFO_LAST_ERROR, msg, true); }
+function logErr(msg)  { log(msg, 'error'); setState(DP_INFO_LAST_ERROR, msg, true); }
+function setStatus(msg){ setState(DP_CTL_STATUS, msg, true); }
+
+// Zeit-Utils
+const now = () => Date.now();
+function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
+
+/* ==========================================================
+   3) SYSTEM-/PWM-FUNKTIONEN (pigpio/pigs)
+   ========================================================== */
+
+function execCmd(cmd, cb) {
+  try {
+    exec(cmd, (err, stdout, stderr) => {
+      if (err) logWarn(`exec error: ${err} / ${stderr}`);
+      if (cb) cb(stdout?.toString() || '');
+    });
+  } catch (e) { logWarn(`exec exception: ${e}`); }
+}
+
+// PWM init
+function pwmInit() {
+  execCmd(`pigs hp ${CFG_PWM_GPIO} ${CFG_PWM_FREQ_HZ} 0`);
+}
+
+// W -> Duty
+function setHeaterPower(watt) {
+  const w = Math.max(0, Math.min(CFG_MAX_WATT, Math.round(watt)));
+  const duty = Math.round((w / CFG_MAX_WATT) * CFG_PWM_DUTY_FULLSCALE);
+  execCmd(`pigs hp ${CFG_PWM_GPIO} ${CFG_PWM_FREQ_HZ} ${duty}`);
+  setState(DP_INFO_LAST_CMD_WATT, w, true);
+  updateAmpelByRunState();
+  return w;
+}
+
+/* ==========================================================
+   4) AMPel-ANZEIGE – echte Lampen-DPs (extern)
+   Zustände: 'green', 'green-blink', 'yellow', 'red', 'all-blink'
+   ========================================================== */
+
+let ampelBlinkTimer = null;
+let ampelBlinkOn = false;
+let currentAmpel = '';
+
+function writeLamps({ gelb = false, gruen = false, rot = false }) {
+  try { setState(DP_LAMP_GELB, !!gelb, true); } catch(e) {}
+  try { setState(DP_LAMP_GRUEN, !!gruen, true); } catch(e) {}
+  try { setState(DP_LAMP_ROT,   !!rot,   true); } catch(e) {}
+}
+function stopBlink() {
+  if (ampelBlinkTimer) clearInterval(ampelBlinkTimer);
+  ampelBlinkTimer = null;
+  ampelBlinkOn = false;
+}
+function setAmpel(mode) {
+  if (mode === currentAmpel) return;
+  currentAmpel = mode;
+
+  setState(DP_UI_AMPEL, mode, true);
+  stopBlink();
+  writeLamps({ gelb:false, gruen:false, rot:false });
+
+  if (mode === 'green')  return writeLamps({ gruen:true });
+  if (mode === 'yellow') return writeLamps({ gelb:true });
+  if (mode === 'red')    return writeLamps({ rot:true });
+
+  if (mode === 'green-blink') {
+    ampelBlinkTimer = setInterval(() => {
+      ampelBlinkOn = !ampelBlinkOn;
+      writeLamps({ gelb:false, gruen:ampelBlinkOn, rot:false });
+    }, T_BLINK_INTERVAL_MS);
+    return;
+  }
+  if (mode === 'all-blink') {
+    ampelBlinkTimer = setInterval(() => {
+      ampelBlinkOn = !ampelBlinkOn;
+      writeLamps({ gelb:ampelBlinkOn, gruen:ampelBlinkOn, rot:ampelBlinkOn });
+    }, T_BLINK_INTERVAL_MS);
+    return;
+  }
+  // Fallback
+  writeLamps({ gelb:false, gruen:false, rot:false });
+}
+
+function updateAmpelByRunState() {
+  const active = getState(DP_CTL_ENABLE)?.val === true;
+  const status = getState(DP_CTL_STATUS)?.val || '';
+  const disabledEOD = getState(DP_CTL_DISABLE_UNTIL_EOD)?.val === true;
+
+  if (/Kalibrierung aktiv|Selbsttest aktiv/i.test(status)) return setAmpel('all-blink');
+  if (disabledEOD) return setAmpel('yellow');
+  if (/fehler|error|veraltet|deaktiviert/i.test(status)) return setAmpel('red');
+  if (/Standby/i.test(status)) return setAmpel('green-blink');
+  if (active) return setAmpel('green');
+  return setAmpel('green-blink');
+}
+
+/* ==========================================================
+   5) DATENPUNKTE ANLEGEN (ALLE mit passenden common-Werten)
+   ========================================================== */
+
+// --- Steuerung & Status (RO) ---
+ensureStateCommon(DP_CTL_ENABLE,            { type:'boolean', role:'indicator', read:true,  write:false }, false);
+ensureStateCommon(DP_CTL_STATUS,            { type:'string',  role:'text',      read:true,  write:false }, 'Regelung im Standby');
+ensureStateCommon(DP_CTL_CAL_REQUIRED,      { type:'boolean', role:'indicator', read:true,  write:false }, true);
+ensureStateCommon(DP_CTL_CAL_ACTIVE,        { type:'boolean', role:'indicator', read:true,  write:false }, false);
+ensureStateCommon(DP_CTL_CAL_TABLE,         { type:'string',  role:'text',      read:true,  write:false }, '[]');
+ensureStateCommon(DP_CTL_SELFTEST_ACTIVE,   { type:'boolean', role:'indicator', read:true,  write:false }, false);
+ensureStateCommon(DP_CTL_DISABLE_UNTIL_EOD, { type:'boolean', role:'indicator', read:true,  write:false }, false);
+
+// --- Buttons (RW) ---
+ensureButton(DP_CTL_RESET_BTN,     'Reset');
+ensureButton(DP_CTL_CAL_START_BTN, 'Kalibrierung starten');
+
+// --- Ampel-Info (RO) ---
+ensureStateCommon(DP_UI_AMPEL, { type:'string', role:'text', read:true, write:false }, 'green-blink');
+
+// --- Diagnose / Info (RO, mit Units/Min/Max) ---
+ensureStateCommon(DP_INFO_LAST_ERROR,     { type:'string', role:'text',        read:true,  write:false }, '');
+ensureStateCommon(DP_INFO_OFFS_LAST_HOUR, { type:'number', role:'value',       read:true,  write:false, min:0 }, 0);
+ensureStateCommon(DP_INFO_LAST_CMD_WATT,  { type:'number', role:'value.power', read:true,  write:false, unit:'W', min:0, max:CFG_MAX_WATT }, 0);
+ensureStateCommon(DP_INFO_LAST_IST_WATT,  { type:'number', role:'value.power', read:true,  write:false, unit:'W', min:0 }, 0);
+ensureStateCommon(DP_INFO_SURPLUS_WATT,   { type:'number', role:'value.power', read:true,  write:false, unit:'W' }, 0);
+ensureStateCommon(DP_INFO_WATCHDOG,       { type:'string', role:'text',        read:true,  write:false }, '');
+
+// --- Temperatur-Setpoints (RW, mit Units/Min/Max) ---
+ensureStateCommon(DP_TEMP_MIN,        { type:'number', role:'value.temperature', read:true, write:true, unit:'°C', min:TEMP_VALID_MIN_C, max:TEMP_VALID_MAX_C }, TEMP_DEFAULT_MIN_C);
+ensureStateCommon(DP_TEMP_MAX,        { type:'number', role:'value.temperature', read:true, write:true, unit:'°C', min:TEMP_VALID_MIN_C, max:TEMP_VALID_MAX_C }, TEMP_DEFAULT_MAX_C);
+ensureStateCommon(DP_TEMP_MIN_AKTIV,  { type:'boolean',role:'switch',            read:true, write:true }, false);
+ensureStateCommon(DP_TEMP_DELTA_REGEL,{ type:'number', role:'value',             read:true, write:true, unit:'°C', min:0, max:20 }, TEMP_DELTA_REGEL_C);
+
+/* ==========================================================
+   6) ZUSTANDSVERWALTUNG / VARIABLEN
+   ========================================================== */
+
+let offTimestamps = [];
+let surplusTimer = null;
+let watchdogTimer = null;
+let lastSetWatt = 0;
+let lastIstCheckTimeout = null;
+let deviationWarnActive = false;
+let dayStamp = (new Date()).toDateString();
+
+/* ==========================================================
+   7) KALIBRIERUNG
+   ========================================================== */
+
+function getCalTable() {
+  try {
+    const t = JSON.parse(getState(DP_CTL_CAL_TABLE)?.val || '[]');
+    return Array.isArray(t) ? t : [];
+  } catch { return []; }
+}
+function setCalTable(arr) {
+  setState(DP_CTL_CAL_TABLE, JSON.stringify(arr), true);
+}
+
+async function runCalibration(auto = false) {
+  if (getState(DP_CTL_CAL_ACTIVE)?.val) return;
+  setState(DP_CTL_CAL_ACTIVE, true, true);
+  setStatus('Kalibrierung aktiv, bitte warten.');
+  setAmpel('all-blink');
+
+  const table = [];
+  for (let w = 0; w <= CFG_MAX_WATT; w += 100) {
+    setHeaterPower(w);
+    await sleep(T_CAL_STEP_DELAY_MS);
+    const ist = Number(getState(DP_EXT_IST_WATT)?.val) || 0;
+    setState(DP_INFO_LAST_IST_WATT, ist, true);
+    table.push({ wSoll: w, deltaIstMinusSoll: ist - w });
+  }
+
+  setHeaterPower(0);
+  setCalTable(table);
+  setState(DP_CTL_CAL_ACTIVE, false, true);
+  setState(DP_CTL_CAL_REQUIRED, false, true);
+  setStatus('Kalibrierung abgeschlossen.');
+  updateAmpelByRunState();
+}
+
+// Kalibrierkorrektur
+function applyCalibrationTarget(w) {
+  const table = getCalTable();
+  if (!table.length) return w;
+  const step = Math.round(w / 100) * 100;
+  const entry = table.find(e => e.wSoll === step) || table[table.length - 1];
+  const corrected = Math.max(0, Math.min(CFG_MAX_WATT, Math.round(w - (entry.deltaIstMinusSoll || 0))));
+  return corrected;
+}
+
+/* ==========================================================
+   8) SELBSTTEST (bei erstem PV-Ertrag pro Tag)
+   ========================================================== */
+
+let selftestDoneToday = false;
+
+async function runSelftestIfNeeded() {
+  const today = (new Date()).toDateString();
+  if (dayStamp !== today) {
+    dayStamp = today;
+    selftestDoneToday = false;
+    setState(DP_CTL_DISABLE_UNTIL_EOD, false, true);
+    offTimestamps = [];
+  }
+  if (selftestDoneToday) return;
+
+  if (!pvProduziert()) return;
+  selftestDoneToday = true;
+
+  setState(DP_CTL_SELFTEST_ACTIVE, true, true);
+  setStatus('Selbsttest aktiv');
+  setAmpel('all-blink');
+
+  setHeaterPower(500);
+  await sleep(T_SELFTEST_DURATION_MS);
+
+  const ist = Number(getState(DP_EXT_IST_WATT)?.val) || 0;
+  const abw = Math.abs(ist - 500);
+  const tol = 500 * 0.05;
+  setState(DP_INFO_LAST_IST_WATT, ist, true);
+
+  if (abw > tol) {
+    setHeaterPower(0);
+    setStatus('Selbsttest fehlerhaft. Warte auf Kalibrierung');
+    logWarn('Selbsttest: Abweichung > ±5% – automatische Kalibrierung wird ausgeführt.');
+    await sleep(T_SELFTEST_FAIL_WAIT_MS);
+    await runCalibration(true);
+  } else {
+    setStatus('Selbsttest ok. Regelung aktiv');
+  }
+
+  setState(DP_CTL_SELFTEST_ACTIVE, false, true);
+  updateAmpelByRunState();
+}
+
+/* ==========================================================
+   9) TEMPERATURPRÜFUNG / SCHUTZ
+   ========================================================== */
+
+function tempsValid() {
+  const te = Number(getState(DP_EXT_TEMP_EXTERN)?.val);
+  const ti = Number(getState(DP_EXT_TEMP_INTERN)?.val);
+  if (isNaN(te) || isNaN(ti)) return false;
+  return te >= TEMP_VALID_MIN_C && te <= TEMP_VALID_MAX_C && ti >= TEMP_VALID_MIN_C && ti <= TEMP_VALID_MAX_C;
+}
+
+function tempProtectionAndWW() {
+  const tMax = Number(getState(DP_TEMP_MAX)?.val) || TEMP_DEFAULT_MAX_C;
+  const tMin = Number(getState(DP_TEMP_MIN)?.val) || TEMP_DEFAULT_MIN_C;
+  const dReg = Number(getState(DP_TEMP_DELTA_REGEL)?.val) || TEMP_DELTA_REGEL_C;
+  const wwOn = getState(DP_TEMP_MIN_AKTIV)?.val === true;
+
+  const tExt = Number(getState(DP_EXT_TEMP_EXTERN)?.val) || 0;
+
+  // Max-Temperatur: sofort 0 W, bis unter (tMax - dReg)
+  if (tExt > tMax) {
+    setHeaterPower(0);
+    setStatus(`Temperaturgrenze von ${tMax} °C erreicht. Heizstab deaktiviert.`);
+    return {forceOff: true};
+  }
+  if (tExt >= (tMax - dReg)) {
+    return {limitRise: true};
+  }
+
+  // WW-Sicherstellung
+  if (wwOn && tExt < tMin) {
+    const cmd = applyCalibrationTarget(2000);
+    setHeaterPower(cmd);
+    setStatus('WW-Sicherstellungstemperatur unterschritten. Heizstab aktiv.');
+    return {forceWW: true};
+  }
+
+  return {};
+}
+
+/* ==========================================================
+   10) ÜBERSCHUSSREGELUNG
+   ========================================================== */
+
+function pvProduziert() {
+  if (DP_EXT_PV_PRODUKTION) {
+    return getState(DP_EXT_PV_PRODUKTION)?.val === true;
+  }
+  const pv = Number(getState(DP_EXT_PV_WATT)?.val) || 0;
+  return pv > 50;
+}
+
+function calcSurplusWatt() {
+  const pv = Number(getState(DP_EXT_PV_WATT)?.val) || 0;
+  const home = Number(getState(DP_EXT_HAUS_WATT)?.val) || 0;
+  const heater = Number(getState(DP_INFO_LAST_CMD_WATT)?.val) || 0;
+  const nettoHome = Math.max(0, home - heater);
+  return pv - nettoHome;
+}
+
+function recordOff() {
+  const t = now();
+  offTimestamps.push(t);
+  offTimestamps = offTimestamps.filter(ts => t - ts <= OFFS_WINDOW_MS);
+  setState(DP_INFO_OFFS_LAST_HOUR, offTimestamps.length, true);
+
+  if (offTimestamps.length > OFFS_PER_HOUR_LIMIT) {
+    setState(DP_CTL_DISABLE_UNTIL_EOD, true, true);
+    setHeaterPower(0);
+    setStatus('Regelung wegen zu wenig Überschuss bis Tagesende deaktiviert.');
+    updateAmpelByRunState();
+  }
+}
+
+function startSurplusLoop() {
+  if (surplusTimer) return;
+  surplusTimer = setInterval(async () => {
+
+    // Tageswechsel + Selbsttest
+    await runSelftestIfNeeded();
+
+    // Standby wenn keine PV
+    if (!pvProduziert()) {
+      setState(DP_CTL_ENABLE, false, true);
+      setHeaterPower(0);
+      setStatus('Regelung im Standby');
+      updateAmpelByRunState();
+      return;
+    }
+
+    // Temperaturbereich beider Sensoren prüfen
+    if (!tempsValid()) {
+      setState(DP_CTL_ENABLE, false, true);
+      setHeaterPower(0);
+      const te = getState(DP_EXT_TEMP_EXTERN)?.val;
+      const ti = getState(DP_EXT_TEMP_INTERN)?.val;
+      const msg = `Temperatur von Sensor Extern/Intern fehlerhaft. Regelung deaktiviert. (Ext=${te}, Int=${ti})`;
+      logErr(msg);
+      setStatus(msg);
+      updateAmpelByRunState();
+      return;
+    }
+
+    // Sperre bis Tagesende?
+    if (getState(DP_CTL_DISABLE_UNTIL_EOD)?.val === true) {
+      setState(DP_CTL_ENABLE, false, true);
+      setHeaterPower(0);
+      updateAmpelByRunState();
+      return;
+    }
+
+    // Temp-Schutz & WW-Sicherstellung
+    const tp = tempProtectionAndWW();
+    if (tp.forceOff || tp.forceWW) {
+      setState(DP_CTL_ENABLE, tp.forceWW, true);
+      updateAmpelByRunState();
+      return;
+    }
+
+    // Überschuss
+    let surplus = calcSurplusWatt();
+    setState(DP_INFO_SURPLUS_WATT, surplus, true);
+
+    if (surplus < SURPLUS_MIN_WATT) {
+      if (lastSetWatt > 0) recordOff();
+      lastSetWatt = setHeaterPower(0);
+      setState(DP_CTL_ENABLE, false, true);
+      setStatus('Regelung aktiv (wartet auf genügend Überschuss)');
+      updateAmpelByRunState();
+      return;
+    }
+
+    const target = Math.min(CFG_MAX_WATT, Math.max(0, Math.floor((surplus - SURPLUS_SAFETY_WATT) / 100) * 100));
+    const corrected = applyCalibrationTarget(target);
+    lastSetWatt = setHeaterPower(corrected);
+    setState(DP_CTL_ENABLE, true, true);
+    setStatus('Regelung aktiv');
+
+    // Überwachung ±10% nach Setzpause
+    if (lastIstCheckTimeout) clearTimeout(lastIstCheckTimeout);
+    lastIstCheckTimeout = setTimeout(() => {
+      const ist = Number(getState(DP_EXT_IST_WATT)?.val) || 0;
+      setState(DP_INFO_LAST_IST_WATT, ist, true);
+      const tol = Math.max(30, lastSetWatt * 0.10);
+      if (Math.abs(ist - lastSetWatt) > tol) {
+        if (!deviationWarnActive) {
+          deviationWarnActive = true;
+          logWarn('±10% Abweichung festgestellt.');
+          setStatus('±10% Abweichung festgestellt.');
+        }
+      } else if (deviationWarnActive) {
+        deviationWarnActive = false;
+        setStatus('Regelung aktiv');
+      }
+    }, T_AFTER_SETPOINT_MS);
+
+  }, T_SURPLUS_INTERVAL_MS);
+}
+
+/* ==========================================================
+   11) WATCHDOG (alle relevanten externen DPs)
+   ========================================================== */
+
+// Diese externen Datenpunkte müssen regelmäßig aktualisiert werden:
+const WATCHDOG_IDS = [
+  DP_EXT_IST_WATT,
+  DP_EXT_PV_WATT,
+  DP_EXT_HAUS_WATT,
+  DP_EXT_TEMP_EXTERN,
+  DP_EXT_TEMP_INTERN
+].filter(Boolean);
+
+// Wichtig: KEINE erneute Deklaration von watchdogTimer hier! (steht in Abschnitt 6)
+let watchdogLastErrorMsg = '';   // zuletzt geloggte Fehlernachricht
+let watchdogHadError = false;    // Merker, ob zuvor ein Fehler aktiv war
+
+function startWatchdog() {
+  if (watchdogTimer) return;
+
+  watchdogTimer = setInterval(() => {
+    const nowTs = Date.now();
+    let staleMsg = '';  // falls ein DP zu alt ist, steht hier die Meldung
+
+    try {
+      for (const id of WATCHDOG_IDS) {
+        const st = getState(id);
+
+        // DP existiert nicht oder hat noch nie einen gültigen Timestamp -> überspringen
+        if (!st || (typeof st.lc === 'undefined' && typeof st.ts === 'undefined')) {
+          continue;
+        }
+
+        const ts = st.lc || st.ts;
+        const age = nowTs - ts;
+
+        if (age > T_WATCHDOG_MAX_AGE_MS) {
+          staleMsg = `Watchdog: Datenpunkt veraltet -> ${id}`;
+          break; // erster veralteter DP reicht, wir reagieren sofort
+        }
+      }
+    } catch (e) {
+      // Schutz gegen unerwartete getState-/Objektfehler
+      staleMsg = `Watchdog: Ausnahme beim Prüfen – ${String(e)}`;
+    }
+
+    if (staleMsg) {
+      // Nur loggen, wenn neu (anderer Text) ODER bisher kein Fehler aktiv war
+      if (!watchdogHadError || staleMsg !== watchdogLastErrorMsg) {
+        watchdogLastErrorMsg = staleMsg;
+        watchdogHadError = true;
+        logErr(staleMsg);
+        setState(DP_INFO_WATCHDOG, staleMsg, true);
+      }
+
+      // Sicherheitsreaktion: Heizstab aus, Regelung aus, Status setzen, Ampel aktualisieren
+      setHeaterPower(0);
+      setState(DP_CTL_ENABLE, false, true);
+      setStatus('Fehler: Datenpunkt wird nicht mehr aktualisiert. Regelung deaktiviert.');
+      updateAmpelByRunState();
+      return; // nichts weiter in diesem Tick
+    }
+
+    // Keine Fehler aktuell. Wenn zuvor ein Fehler aktiv war, einmalig „wieder aktuell“ loggen.
+    if (watchdogHadError) {
+      log('Watchdog: Datenpunkte wieder aktuell: ' + WATCHDOG_IDS.join(', '));
+      watchdogHadError = false;
+      watchdogLastErrorMsg = '';
+      setState(DP_INFO_WATCHDOG, '', true);
+      // Hinweis: Steuerung bleibt aus, bis der Reset-Button gedrückt wird.
+    }
+  }, 1_000);
+}
+
+
+/* ==========================================================
+   12) EVENT-HANDLER (Buttons, externe Trigger)
+   ========================================================== */
+
+// Reset-Button
+on({id: DP_CTL_RESET_BTN, change: 'ne'}, () => {
+  const v = getState(DP_CTL_RESET_BTN)?.val === true;
+  if (!v) return;
+  setState(DP_CTL_DISABLE_UNTIL_EOD, false, true);
+  deviationWarnActive = false;
+  offTimestamps = [];
+  setStatus('Reset durchgeführt. Regelung aktiv.');
+  updateAmpelByRunState();
+  setTimeout(() => setState(DP_CTL_RESET_BTN, false, true), 300);
+});
+
+// Kalibrierung starten (Button)
+on({id: DP_CTL_CAL_START_BTN, change: 'ne'}, async () => {
+  const v = getState(DP_CTL_CAL_START_BTN)?.val === true;
+  if (!v) return;
+  await runCalibration(false);
+  setTimeout(() => setState(DP_CTL_CAL_START_BTN, false, true), 300);
+});
+
+// Beim Start: falls keine Kalibrierung vorhanden -> Flag setzen
+if (!getCalTable().length) {
+  setState(DP_CTL_CAL_REQUIRED, true, true);
+  setStatus('Kalibrierung erforderlich.');
+}
+
+/* ==========================================================
+   13) INITIALISIERUNG / START
+   ========================================================== */
+
+(async function init() {
+  pwmInit();
+  setHeaterPower(0);
+  setStatus('Regelung im Standby');
+  updateAmpelByRunState();
+
+  startWatchdog();
+  startSurplusLoop();
+
+  // PV-Anlauf-Trigger für Selbsttest
+  if (DP_EXT_PV_WATT) {
+    on({id: DP_EXT_PV_WATT, change: 'ne'}, () => runSelftestIfNeeded());
+  }
+  if (DP_EXT_PV_PRODUKTION) {
+    on({id: DP_EXT_PV_PRODUKTION, change: 'ne'}, () => runSelftestIfNeeded());
+  }
+})();
