@@ -554,6 +554,10 @@ function startWatchdog() {
         if (!st || (typeof st.lc === 'undefined' && typeof st.ts === 'undefined')) {
           continue;
         }
+        // PV-Leistung liefert nachts dauerhaft 0 -> in dieser Zeit Watchdog ignorieren
+        if (id === DP_EXT_PV_WATT && Number(st.val) === 0) {
+          continue;
+        }
 
         const ts = st.lc || st.ts;
         const age = nowTs - ts;
