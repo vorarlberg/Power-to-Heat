@@ -37,11 +37,11 @@ const TEMP_DEFAULT_MAX_C      = 65;          // DP TempMax (falls nicht gesetzt)
 const TEMP_DELTA_REGEL_C      = 3;           // DeltaTRegelbereich (Hysterese)
 
 // ---- Externe Mess-Datenpunkte (Adapter) – BITTE PRÜFEN/ANPASSEN ----
-const DP_EXT_IST_WATT         = 'modbus.0.holdingRegisters.1000';      // Istleistung Heizstab (W)
-const DP_EXT_PV_WATT          = 'solarlog.0.power.PV';                 // PV-Leistung (W)
-const DP_EXT_HAUS_WATT        = 'solarlog.0.power.Home';               // Hausverbrauch inkl. Heizstab (W)
-const DP_EXT_TEMP_EXTERN      = 'mqtt.0.sensors.boiler.extTemp';       // °C
-const DP_EXT_TEMP_INTERN      = 'mqtt.0.sensors.boiler.intTemp';       // °C
+const DP_EXT_IST_WATT         = 'modbus.0.holdingRegisters.1000';                                // Istleistung Heizstab (W)
+const DP_EXT_PV_WATT          = '0_userdata.0.Strom.Leistung_Fassade';                           // PV-Leistung (W)
+const DP_EXT_HAUS_WATT        = '0_userdata.0.Strom.Hausverbrauch';                              // Hausverbrauch inkl. Heizstab (W)
+const DP_EXT_TEMP_EXTERN      = 'modbus.2.holdingRegisters.1030_Temp_2';                         // °C
+const DP_EXT_TEMP_INTERN      = 'modbus.2.holdingRegisters.1001_(R)_Temperatur_Sensor_intern';   // °C
 const DP_EXT_PV_PRODUKTION    = ''; // falls vorhanden bool-Flag, sonst leer lassen
 
 // ---- Externe Ampel-Lampen (werden NICHT vom Skript angelegt) ----
