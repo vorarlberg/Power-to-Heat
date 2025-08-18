@@ -122,14 +122,31 @@ function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
    3) SYSTEM-/PWM-FUNKTIONEN (pigpio/pigs)
    ========================================================== */
 
-function execCmd(cmd, cb) {
-  try {
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) logWarn(`exec error: ${err} / ${stderr}`);
-      if (cb) cb(stdout?.toString() || '');
-    });
-  } catch (e) { logWarn(`exec exception: ${e}`); }
-}
+ // Fehlermeldungen throttlen (max. alle 5s pro identischer Message)
+ let lastExecErrMsg = '';
+ let lastExecErrTs  = 0;
+ function execCmd(cmd, cb) {
+   try {
+     exec(cmd, (err, stdout, stderr) => {
+       if (err) {
+         const msg = `exec error: ${err} / ${stderr}`;
+         const nowTs = Date.now();
+         if (msg !== lastExecErrMsg || (nowTs - lastExecErrTs) > 5000) {
+           lastExecErrMsg = msg; lastExecErrTs = nowTs;
+           logWarn(msg);
+         }
+       }
+       if (cb) cb(stdout?.toString() || '');
+     });
+   } catch (e) {
+     const msg = `exec exception: ${e}`;
+     const nowTs = Date.now();
+     if (msg !== lastExecErrMsg || (nowTs - lastExecErrTs) > 5000) {
+       lastExecErrMsg = msg; lastExecErrTs = nowTs;
+       logWarn(msg);
+     }
+   }
+ }
 
 // PWM init
 function pwmInit() {
@@ -561,7 +578,7 @@ function startWatchdog() {
       }
 
       // Sicherheitsreaktion: Heizstab aus, Regelung aus, Status setzen, Ampel aktualisieren
-      setHeaterPower(0);
+      if (lastSetWatt !== 0) setHeaterPower(0);
       setState(DP_CTL_ENABLE, false, true);
       setStatus('Fehler: Datenpunkt wird nicht mehr aktualisiert. Regelung deaktiviert.');
       updateAmpelByRunState();
