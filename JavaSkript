@@ -401,7 +401,7 @@ function pvProduziert() {
 function calcSurplusWatt() {
   const pv = Number(getState(DP_EXT_PV_WATT)?.val) || 0;
   const home = Number(getState(DP_EXT_HAUS_WATT)?.val) || 0;
-  const heater = Number(getState(DP_INFO_LAST_CMD_WATT)?.val) || 0;
+  const heater = Number(getState(DP_EXT_IST_WATT)?.val) || 0;
   const nettoHome = Math.max(0, home - heater);
   return pv - nettoHome;
 }
