@@ -143,7 +143,7 @@ const DP = {
 
 // --- States anlegen ---
 ensureStateBoolRW(DP.regelungEnable, false, 'Regelung manuell erlauben');
-ensureStateBoolRW(DP.aktiv, false, 'Regelung aktiv');
+ensureStateBoolRO(DP.aktiv, 'Regelung aktiv');
 ensureStateStrRW(DP.status, 'Initialisiere...', 'Status der Regelung');
 
 ensureStateNumRW(DP.pwmTargetW, 0, 'PWM Ziel-Leistung (W)', 'W', 0, LIMITS.maxPowerW);
