@@ -94,8 +94,8 @@ function ensureStateCommon(id, common, initial) {
     createState(id, initial, opts);
   } else {
     try {
-      const obj = getObject(id) || {};
-      const mergedCommon = Object.assign({}, (obj.common || {}), common);
+      const obj = /** @type {any} */ (getObject(id)) || {};
+      const mergedCommon = Object.assign({}, obj?.common ?? {}, common);
       extendObject(id, { common: mergedCommon });
       const st = getState(id);
       if (!st || typeof st.val === 'undefined') setState(id, initial, true);
