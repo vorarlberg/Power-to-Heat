@@ -44,7 +44,8 @@ const EXTERNAL = {
     tempExternC:  'modbus.2.holdingRegisters.1030_Temp_2',
     tempInternC:  'modbus.2.holdingRegisters.1001_(R)_Temperatur_Sensor_intern',
     deviceOnline: 'modbus.2.info.connection',
-    istLeistungW: 'modbus.2.holdingRegisters.1000_Power'               // echte Heizstab-Leistung
+    istLeistungW: 'modbus.2.holdingRegisters.1000_Power',               // echte Heizstab-Leistung
+    speicherTempC:'0_userdata.0.VIS_Datenpunkte.Speichertemperatur'     // Warmwasser-Speichertemperatur
 };
 
 // --- Hardware/IO (PWM) ---
@@ -511,6 +512,7 @@ async function regelzyklus() {
     // Sensor-/Parameter-Werte
     const ueberschuss = Number(getState(EXTERNAL.ueberschussW)?.val) || 0;
     const tempExt = Number(getState(EXTERNAL.tempExternC)?.val) || 0;
+    const speicherTemp = Number(getState(EXTERNAL.speicherTempC)?.val) || 0;
     const tempMin = Number(getState(DP.tempMin).val) || LIMITS.wwTempMinDefault;
     const tempMax = Number(getState(DP.tempMax).val) || LIMITS.wwTempMaxDefault;
     const deltaT = Number(getState(DP.deltaT).val) || PARAM.deltaTRegelbereich_Default;
@@ -526,8 +528,8 @@ async function regelzyklus() {
     }
 
     // WW-Sicherstellung
-    if (wwAktiv && tempExt <= zielTemp) {
-        if (tempExt <= tempMin || tempExt <= zielTemp - deltaT) {
+    if (wwAktiv && speicherTemp <= zielTemp) {
+        if (speicherTemp <= tempMin || speicherTemp <= zielTemp - deltaT) {
             const leistung = kalibrierteLeistung(2000);
             setPWM_TargetWatt(leistung);
             setState(DP.aktiv, true, true);
