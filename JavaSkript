@@ -42,7 +42,6 @@ const DP_EXT_PV_WATT          = '0_userdata.0.Strom.Leistung_Fassade';          
 const DP_EXT_HAUS_WATT        = '0_userdata.0.Strom.Hausverbrauch';                              // Hausverbrauch inkl. Heizstab (W)
 const DP_EXT_TEMP_EXTERN      = 'modbus.2.holdingRegisters.1030_Temp_2';                         // °C
 const DP_EXT_TEMP_INTERN      = 'modbus.2.holdingRegisters.1001_(R)_Temperatur_Sensor_intern';   // °C
-const DP_EXT_PV_PRODUKTION    = ''; // falls vorhanden bool-Flag, sonst leer lassen
 
 // ---- Externe Ampel-Lampen (werden NICHT vom Skript angelegt) ----
 const DP_LAMP_GELB            = '0_userdata.0.Heizstab.Lampen.Gelb';
@@ -411,9 +410,6 @@ function tempProtectionAndWW() {
    ========================================================== */
 
 function pvProduziert() {
-  if (DP_EXT_PV_PRODUKTION) {
-    return getState(DP_EXT_PV_PRODUKTION)?.val === true;
-  }
   const pv = Number(getState(DP_EXT_PV_WATT)?.val) || 0;
   return pv > 50;
 }
@@ -650,8 +646,5 @@ if (!getCalTable().length) {
   // PV-Anlauf-Trigger für Selbsttest
   if (DP_EXT_PV_WATT) {
     on({id: DP_EXT_PV_WATT, change: 'ne'}, () => runSelftestIfNeeded());
-  }
-  if (DP_EXT_PV_PRODUKTION) {
-    on({id: DP_EXT_PV_PRODUKTION, change: 'ne'}, () => runSelftestIfNeeded());
   }
 })();
