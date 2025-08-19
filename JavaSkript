@@ -61,6 +61,7 @@ const DP_CTL_CAL_ACTIVE             = BASE + 'Control.Kalibrierung.Aktiv';     /
 const DP_CTL_CAL_TABLE              = BASE + 'Control.Kalibrierung.TabelleJSON'; // ro json-string
 const DP_CTL_SELFTEST_ACTIVE        = BASE + 'Control.Selbsttest.Aktiv';       // ro bool
 const DP_CTL_DISABLE_UNTIL_EOD      = BASE + 'Control.Sperre.BisTagesende';    // ro bool
+const DP_CTL_WATCHDOG_ACTIVE        = BASE + 'Control.WatchdogAktiv';          // bool
 
 // Ampel-Info (nur Info-String, echte Lampen über DP_LAMP_*)
 const DP_UI_AMPEL                   = BASE + 'UI.Ampel';
@@ -238,6 +239,9 @@ ensureStateCommon(DP_CTL_CAL_ACTIVE,        { type:'boolean', role:'indicator', 
 ensureStateCommon(DP_CTL_CAL_TABLE,         { type:'string',  role:'text',      read:true,  write:false }, '[]');
 ensureStateCommon(DP_CTL_SELFTEST_ACTIVE,   { type:'boolean', role:'indicator', read:true,  write:false }, false);
 ensureStateCommon(DP_CTL_DISABLE_UNTIL_EOD, { type:'boolean', role:'indicator', read:true,  write:false }, false);
+
+// --- Steuerung (RW) ---
+ensureStateCommon(DP_CTL_WATCHDOG_ACTIVE, { type:'boolean', role:'switch', read:true, write:true }, true);
 
 // --- Buttons (RW) ---
 ensureButton(DP_CTL_RESET_BTN,     'Reset');
@@ -539,7 +543,7 @@ let watchdogLastErrorMsg = '';   // zuletzt geloggte Fehlernachricht
 let watchdogHadError = false;    // Merker, ob zuvor ein Fehler aktiv war
 
 function startWatchdog() {
-  if (watchdogTimer) return;
+  if (watchdogTimer || getState(DP_CTL_WATCHDOG_ACTIVE)?.val === false) return;
 
   watchdogTimer = setInterval(() => {
     const nowTs = Date.now();
@@ -599,6 +603,13 @@ function startWatchdog() {
   }, 1_000);
 }
 
+function stopWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
+}
+
 
 /* ==========================================================
    12) EVENT-HANDLER (Buttons, externe Trigger)
@@ -622,6 +633,15 @@ on({id: DP_CTL_CAL_START_BTN, change: 'ne'}, async () => {
   if (!v) return;
   await runCalibration(false);
   setTimeout(() => setState(DP_CTL_CAL_START_BTN, false, true), 300);
+});
+
+// Watchdog ein-/ausschalten
+on({id: DP_CTL_WATCHDOG_ACTIVE, change: 'ne'}, () => {
+  if (getState(DP_CTL_WATCHDOG_ACTIVE)?.val === true) {
+    startWatchdog();
+  } else {
+    stopWatchdog();
+  }
 });
 
 // Beim Start: falls keine Kalibrierung vorhanden -> Flag setzen
