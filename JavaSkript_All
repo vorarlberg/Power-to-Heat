@@ -1,0 +1,533 @@
+// === Heizstab-Regelung – Hauptmodul mit Übertemperatur, Kalibrierung, Lebenszeichenprüfung – Version 2.5 ===
+
+const sperreRegelungDP = '0_userdata.0.Heizstab.Sperre_Regelung';
+const Heizstab_CONFIG = {
+    maxPower: 3500,
+    regelIntervallSek: 30,
+    hysterese: 100,
+    tempMin: 30,
+    tempMax: 75,
+    deltaTRegelbereich: '0_userdata.0.Heizstab.DeltaT_Regelbereich',
+    wwZieltempDP: '0_userdata.0.Heizstab.WW_Sicherstellung_Zieltemp',
+
+    aktivDP: '0_userdata.0.Heizstab.Regelung_AKTIV',
+    statusDP: '0_userdata.0.Heizstab.Status',
+    pwmDP: '0_userdata.0.Heizstab.PWM_Wert',
+    istWertDP: '0_userdata.0.Heizstab.Simulator.TEST_Heizstab_ISTWERT',
+
+    regelungAusDP: '0_userdata.0.Heizstab.Regelung_Aus',
+    ueberschussExternDP: '0_userdata.0.Strom.Netzeinspeisung',
+    tempExternDP: 'modbus.2.holdingRegisters.1030_Temp_2',
+    tempInternDP: 'modbus.2.holdingRegisters.1001_(R)_Temperatur_Sensor_intern',
+    uebertempInternDP: '0_userdata.0.Heizstab.Übertemperatur_intern',
+    uebertempExternDP: '0_userdata.0.Heizstab.Übertemperatur_extern',
+    tempMinDP: '0_userdata.0.Heizstab.MinTemp',
+    tempMaxDP: '0_userdata.0.Heizstab.MaxTemp',
+    tempMinAKTIV_DP: '0_userdata.0.Heizstab.WW_Sicherstellung_AN',
+    kalibrierungDP: '0_userdata.0.Heizstab.Kalibrierung',
+    resetDP: '0_userdata.0.Heizstab.Fail_Reset'
+};
+
+// === Initialisierung ===
+setState(Heizstab_CONFIG.aktivDP, false, true);
+setState(Heizstab_CONFIG.statusDP, 'Initialisierung abgeschlossen. Warte auf PV-Überschuss. [SYS000]', true);
+pwmSetzen(0);
+
+// === Sperr- und Fehlerlogik ===
+let sperreAktiv = false;
+let skriptFehlerAktiv = false;
+
+// === Lebenszeichenüberwachung der Subskripte ===
+const lebenszeichen = {
+    Ampel: '0_userdata.0.Heizstab.Skript_Check.Ampelsteuerung',
+    Kalibrierung: '0_userdata.0.Heizstab.Skript_Check.Kalibrierung',
+    PWM: '0_userdata.0.Heizstab.Skript_Check.PWM_Ansteuerung',
+    Selbsttest: '0_userdata.0.Heizstab.Skript_Check.Selbsttest'
+};
+
+function pruefeLebenszeichen() {
+    const now = Date.now();
+    const maxDiff = 2 * 60 * 1000; // 2 Minuten
+    let fehlerhaft = false;
+
+    for (const [name, dp] of Object.entries(lebenszeichen)) {
+        const val = getState(dp).val || 0;
+        if ((now - val) > maxDiff) {
+            log(`[Heizstab] WARNUNG: Lebenszeichen von "${name}" fehlt. Letzte Aktivität: ${new Date(val).toLocaleString()}`, 'warn');
+            fehlerhaft = true;
+        }
+    }
+
+    if (fehlerhaft) {
+        if (!skriptFehlerAktiv) {
+            skriptFehlerAktiv = true;
+            pwmSetzen(0);
+            setState(Heizstab_CONFIG.aktivDP, false, true);
+            setState(Heizstab_CONFIG.statusDP, 'Sicherheitsabschaltung: Lebenszeichen fehlt. [SYS010]', true);
+        }
+    } else {
+        if (skriptFehlerAktiv) {
+            log('[Heizstab] Lebenszeichen aller Subskripte wieder vorhanden. Fehlerzustand aufgehoben.', 'info');
+        }
+        skriptFehlerAktiv = false;
+    }
+}
+setInterval(pruefeLebenszeichen, 10000);
+
+// === Hilfsfunktionen ===
+function pwmSetzen(power) {
+    const begrenzt = Math.min(Heizstab_CONFIG.maxPower, Math.max(0, power));
+    setState(Heizstab_CONFIG.pwmDP, begrenzt, true);
+    log(`[Heizstab] PWM gesetzt auf ${begrenzt} W`, 'info');
+}
+
+function warte(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function prozentAbweichung(soll, ist) {
+    return Math.abs(((ist - soll) / soll) * 100);
+}
+
+function kalibrierteLeistung(sollWert) {
+    const datenJson = getState(Heizstab_CONFIG.kalibrierungDP).val;
+    if (!datenJson) return sollWert;
+    try {
+        const daten = JSON.parse(datenJson);
+        const keys = Object.keys(daten).map(k => parseInt(k)).sort((a, b) => a - b);
+        for (let i = 0; i < keys.length - 1; i++) {
+            const x0 = keys[i];
+            const x1 = keys[i + 1];
+            const y0 = daten[x0];
+            const y1 = daten[x1];
+            if (sollWert >= y0 && sollWert <= y1) {
+                const pwm = x0 + ((sollWert - y0) * (x1 - x0)) / (y1 - y0);
+                return Math.round(pwm);
+            }
+        }
+    } catch (e) {
+        log(`[Heizstab] Fehler bei Kalibrierdaten: ${e}`, 'error');
+    }
+    return sollWert;
+}
+
+// === Hauptregelzyklus ===
+setInterval(async () => {
+    // Sperre durch Übertemperatur
+    const uebertempInt = getState(Heizstab_CONFIG.tempInternDP).val || 0;
+    const uebertempExt = getState(Heizstab_CONFIG.tempExternDP).val || 0;
+    const grenzeInt = getState(Heizstab_CONFIG.uebertempInternDP).val || 90;
+    const grenzeExt = getState(Heizstab_CONFIG.uebertempExternDP).val || 90;
+
+    if (uebertempInt >= grenzeInt || uebertempExt >= grenzeExt) {
+        setState(Heizstab_CONFIG.statusDP, `Übertemperatur erkannt – Abschaltung. [TP004]`, true);
+        pwmSetzen(0);
+        setState(Heizstab_CONFIG.aktivDP, false, true);
+        sperreAktiv = true;
+        return;
+    }
+
+    if (sperreAktiv) {
+        if (getState(Heizstab_CONFIG.resetDP).val === true) {
+            if (uebertempInt >= grenzeInt || uebertempExt >= grenzeExt) {
+                setState(Heizstab_CONFIG.statusDP, 'Quittierung nicht möglich – Übertemperatur besteht noch.', true);
+                await warte(5000);
+                setState(Heizstab_CONFIG.resetDP, false, true);
+                setState(Heizstab_CONFIG.statusDP, 'Übertemperatur erkannt – Abschaltung. [TP004]', true);
+                return;
+            } else {
+                sperreAktiv = false;
+                setState(Heizstab_CONFIG.resetDP, false, true);
+                log('[Heizstab] Sperre aufgehoben durch Quittierung.', 'info');
+            }
+        } else {
+            return;
+        }
+    }
+
+    // Kalibrierung / Sperre
+    if (getState(sperreRegelungDP).val === true) {
+        setState(Heizstab_CONFIG.statusDP, 'Regelung pausiert (Kalibrierung aktiv).', true);
+        setState(Heizstab_CONFIG.aktivDP, false, true);
+        return;
+    }
+
+    // Manuell deaktiviert
+    if (getState(Heizstab_CONFIG.regelungAusDP).val !== true) {
+        setState(Heizstab_CONFIG.statusDP, 'Regelung manuell deaktiviert. [RG001]', true);
+        setState(Heizstab_CONFIG.aktivDP, false, true);
+        pwmSetzen(0);
+        return;
+    }
+
+    // Sensor- & Regelwerte
+    const ueberschuss = getState(Heizstab_CONFIG.ueberschussExternDP).val || 0;
+    const tempExt = getState(Heizstab_CONFIG.tempExternDP).val || 0;
+    const tempMin = getState(Heizstab_CONFIG.tempMinDP).val || Heizstab_CONFIG.tempMin;
+    const tempMax = getState(Heizstab_CONFIG.tempMaxDP).val || Heizstab_CONFIG.tempMax;
+    const deltaT = getState(Heizstab_CONFIG.deltaTRegelbereich).val || 5;
+    const zielTemp = getState(Heizstab_CONFIG.wwZieltempDP).val || 60;
+    const wwAktiv = getState(Heizstab_CONFIG.tempMinAKTIV_DP).val === true;
+    const ist = getState(Heizstab_CONFIG.istWertDP).val || 0;
+
+    if (tempExt >= tempMax) {
+        setState(Heizstab_CONFIG.statusDP, `Maximaltemperatur ${tempExt}°C erreicht. [TP002]`, true);
+        pwmSetzen(0);
+        setState(Heizstab_CONFIG.aktivDP, false, true);
+        return;
+    }
+
+    // WW Sicherstellung
+    if (wwAktiv && tempExt <= zielTemp) {
+        if (tempExt <= tempMin || tempExt <= zielTemp - deltaT) {
+            const leistung = kalibrierteLeistung(2000);
+            pwmSetzen(leistung);
+            setState(Heizstab_CONFIG.aktivDP, true, true);
+            setState(Heizstab_CONFIG.statusDP, 'WW Sicherstellung aktiv. [TP003]', true);
+            return;
+        }
+    }
+
+    // PV-Überschussbetrieb
+    if (ueberschuss > 500 + Heizstab_CONFIG.hysterese) {
+        let leistung = Math.min(Heizstab_CONFIG.maxPower, ueberschuss - Heizstab_CONFIG.hysterese);
+        const pwm = kalibrierteLeistung(leistung);
+        pwmSetzen(pwm);
+        setState(Heizstab_CONFIG.aktivDP, true, true);
+        setState(Heizstab_CONFIG.statusDP, 'Regelung aktiv. [RG003]', true);
+
+        await warte(4000);
+        const istNeu = getState(Heizstab_CONFIG.istWertDP).val || 0;
+        const abw = prozentAbweichung(leistung, istNeu);
+        if (abw > 10) {
+            setState(Heizstab_CONFIG.statusDP, `Abweichung erkannt. Heizstab gesperrt. [ABW001]`, true);
+            log(`[Heizstab] Abweichung >10%: Soll=${leistung}W Ist=${istNeu}W Abw=${abw.toFixed(1)}%`, 'warn');
+            pwmSetzen(0);
+            setState(Heizstab_CONFIG.aktivDP, false, true);
+            sperreAktiv = true;
+        }
+    } else {
+        pwmSetzen(0);
+        setState(Heizstab_CONFIG.statusDP, 'Überschuss zu gering. Heizstab aus. [RG004]', true);
+        setState(Heizstab_CONFIG.aktivDP, false, true);
+    }
+}, Heizstab_CONFIG.regelIntervallSek * 1000);
+
+// === Ampelsteuerung – Heizstabanzeige über LEDs ===
+const Ampel_CONFIG = {
+    gruen: '0_userdata.0.Heizstab.Lampen.Grün',
+    gelb:  '0_userdata.0.Heizstab.Lampen.Gelb',
+    rot:   '0_userdata.0.Heizstab.Lampen.Rot',
+    pwmDP: '0_userdata.0.Heizstab.PWM_Wert',
+    statusDP: '0_userdata.0.Heizstab.Status'
+};
+
+let blinkTimer = null;
+
+function setLED(dp, val) {
+    setState(dp, val, true);
+}
+
+function resetLEDs() {
+    setLED(Ampel_CONFIG.gruen, false);
+    setLED(Ampel_CONFIG.gelb, false);
+    setLED(Ampel_CONFIG.rot, false);
+    if (blinkTimer) {
+        clearInterval(blinkTimer);
+        blinkTimer = null;
+    }
+}
+
+function blinkLEDs(...dps) {
+    let state = false;
+    if (blinkTimer) clearInterval(blinkTimer);
+    blinkTimer = setInterval(() => {
+        state = !state;
+        dps.forEach(dp => setLED(dp, state));
+    }, 500);
+}
+
+on({ id: Ampel_CONFIG.statusDP, change: 'any' }, () => {
+    const status = getState(Ampel_CONFIG.statusDP).val || '';
+    const leistung = getState(Ampel_CONFIG.pwmDP).val || 0;
+
+    resetLEDs();
+
+    if (status.includes('[TP002]') || status.includes('[TP001]') || status.includes('Übertemperatur')) {
+        // Max-Temperatur erreicht oder Sensorfehler oder Übertemperatur – sofort rot
+        setLED(Ampel_CONFIG.rot, true);
+    } else if (status.includes('[ABW001]')) {
+        // Abweichung – rot leuchtet
+        setLED(Ampel_CONFIG.rot, true);
+    } else if (status.includes('[TP003]')) {
+        // WW Sicherstellung aktiv – grün + gelb
+        setLED(Ampel_CONFIG.gruen, true);
+        setLED(Ampel_CONFIG.gelb, true);
+    } else if (status.includes('[RG003]') && leistung > 0) {
+        // Regelung aktiv – grün
+        setLED(Ampel_CONFIG.gruen, true);
+    } else if (status.includes('[RG004]') || status.includes('[RG001]')) {
+        // Zu wenig Überschuss oder manuell deaktiviert – grün blinkt
+        blinkLEDs(Ampel_CONFIG.gruen);
+    } else if (status.includes('[ST001]')) {
+        // Selbsttest – alle blinken
+        blinkLEDs(Ampel_CONFIG.gruen, Ampel_CONFIG.gelb, Ampel_CONFIG.rot);
+    }
+});
+
+on({ id: Ampel_CONFIG.sperreDP, change: 'ne' }, (obj) => {
+    if (obj.state?.val === true) {
+        log('[Ampel] Regelung gesperrt – Status wird durch Hauptskript gesetzt.', 'info');
+    }
+});
+
+// Lebenszeichen
+const checkDP = '0_userdata.0.Heizstab.Skript_Check.Ampelsteuerung';
+setInterval(() => setState(checkDP, Date.now(), true), 60000);
+
+
+const kalibrierung_CONFIG = {
+    startDP:         '0_userdata.0.Heizstab.Start_Kalibrierung',
+    istWertDP:       '0_userdata.0.Heizstab.Simulator.TEST_Heizstab_ISTWERT',
+    pwmDP:           '0_userdata.0.Heizstab.PWM_Wert',
+    statusDP:        '0_userdata.0.Heizstab.Status',
+    kalibrierungDP:  '0_userdata.0.Heizstab.Kalibrierung',
+    sperreDP:        '0_userdata.0.Heizstab.Sperre_Regelung',
+    kalibrierungLaeuftDP: '0_userdata.0.Heizstab.Kalibrierung_Läuft',
+    maxPower:        3500,
+    schritt:         100,
+    pauseMs:         10000,
+
+    // GPIO LEDs
+    ledGruen: '0_userdata.0.Heizstab.Lampen.Grün',
+    ledGelb:  '0_userdata.0.Heizstab.Lampen.Gelb',
+    ledRot:   '0_userdata.0.Heizstab.Lampen.Rot',
+};
+
+let blinkInterval = null;
+
+function blinkAlleLEDs(start) {
+    if (start) {
+        let zustand = false;
+        blinkInterval = setInterval(() => {
+            zustand = !zustand;
+            setState(kalibrierung_CONFIG.ledGruen, zustand, true);
+            setState(kalibrierung_CONFIG.ledGelb, zustand, true);
+            setState(kalibrierung_CONFIG.ledRot, zustand, true);
+        }, 500);
+    } else {
+        if (blinkInterval) clearInterval(blinkInterval);
+        blinkInterval = null;
+        setState(kalibrierung_CONFIG.ledGruen, false, true);
+        setState(kalibrierung_CONFIG.ledGelb, false, true);
+        setState(kalibrierung_CONFIG.ledRot, false, true);
+    }
+}
+
+function warte(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pwmSetzen(power) {
+    const p = Math.min(kalibrierung_CONFIG.maxPower, Math.max(0, power));
+    await setStateAsync(kalibrierung_CONFIG.pwmDP, p, true);
+}
+
+async function kalibrieren() {
+    log('[Kalibrierung] Starte Kalibrierung...', 'info');
+    await setStateAsync(kalibrierung_CONFIG.sperreDP, true);
+    await setStateAsync(kalibrierung_CONFIG.kalibrierungLaeuftDP, true);
+    await setStateAsync(kalibrierung_CONFIG.statusDP, 'Kalibrierung aktiv [KL001]', true);
+    blinkAlleLEDs(true);
+
+    const daten = {};
+    for (let p = 0; p <= kalibrierung_CONFIG.maxPower; p += kalibrierung_CONFIG.schritt) {
+        await pwmSetzen(p);
+        await warte(kalibrierung_CONFIG.pauseMs);
+        const ist = getState(kalibrierung_CONFIG.istWertDP).val || 0;
+        daten[p] = ist;
+        log(`[Kalibrierung] PWM ${p} W → Ist: ${ist} W`, 'info');
+    }
+
+    await pwmSetzen(0);
+    await setStateAsync(kalibrierung_CONFIG.kalibrierungDP, JSON.stringify(daten), true);
+    await setStateAsync(kalibrierung_CONFIG.statusDP, 'Kalibrierung abgeschlossen [KL002]', true);
+    log('[Kalibrierung] Kalibrierung abgeschlossen.', 'info');
+
+    blinkAlleLEDs(false);
+    await setStateAsync(kalibrierung_CONFIG.kalibrierungLaeuftDP, false);
+    await setStateAsync(kalibrierung_CONFIG.sperreDP, false);
+}
+
+on({ id: kalibrierung_CONFIG.startDP, change: 'ne' }, async (obj) => {
+    if (obj.state?.val === true) {
+        await setStateAsync(kalibrierung_CONFIG.startDP, false, true);
+        await kalibrieren();
+    }
+});
+
+// Lebenszeichen
+const checkDPKal = '0_userdata.0.Heizstab.Skript_Check.Kalibrierung';
+setInterval(() => setState(checkDPKal, Date.now(), true), 60000);
+
+
+// Konfiguration
+const dpInputRaw = '0_userdata.0.Heizstab.PWM_Wert';           // Eingabewert 0–3500
+const dpOutputPercent = '0_userdata.0.Heizstab.PWM_Prozent';   // Prozentwert (nur Ausgabe)
+const dpStatus = '0_userdata.0.Heizstab.Status_Ansteuerung';       // Statusausgabe
+const dpDeviceOnline = 'modbus.2.info.connection';                  // true/false
+
+const gpioPin = 13;      // GPIO für PWM
+const frequency = 200;   // Frequenz in Hz
+
+let deviceOnline = getState(dpDeviceOnline).val === true;
+
+// Umrechnung 0–3500 → 0–100% (ohne Rundung)
+function convertRawToPercent(raw) {
+    const clamped = Math.max(0, Math.min(3500, raw));
+    return (clamped / 3500) * 100;
+}
+
+// PWM setzen (ohne Rundung)
+function setPWM(dutyCyclePercent) {
+    if (!deviceOnline) {
+        log('PWM nicht gesetzt: Gerät ist offline', 'warn');
+        return;
+    }
+
+    const duty = Math.max(0, Math.min(100, dutyCyclePercent));
+    const value = Math.round(duty * 10000);                // pigs erwartet 0–1000000
+
+    const cmd = `pigs hp ${gpioPin} ${frequency} ${value}`;
+    require('child_process').exec(cmd, (err) => {
+        if (err) {
+            log('PWM-Fehler: ' + err.message, 'error');
+            setState(dpStatus, 'Fehler (siehe Log)', true);
+        } else {
+            log(`PWM gesetzt: ${duty}%`, 'info');
+            setState(dpStatus, `PWM: ${duty}%`, true);
+            setState(dpOutputPercent, duty, true);  // kein toFixed, kein Runden
+        }
+    });
+}
+
+// Trigger bei Änderung des Rohwerts (0–3500)
+on({ id: dpInputRaw, change: 'ne' }, (obj) => {
+    const inputValue = parseFloat(obj.state.val);
+    if (isNaN(inputValue)) {
+        log('Ungültiger PWM-Rohwert – keine Aktion', 'warn');
+        return;
+    }
+
+    const percent = convertRawToPercent(inputValue);
+    log(`Berechneter PWM-Prozentwert: ${percent}%`, 'debug');
+
+    if (!deviceOnline) {
+        log('PWM-Wert empfangen, aber Gerät ist offline – keine Aktion', 'warn');
+        return;
+    }
+
+    setPWM(percent);
+});
+
+// Gerätestatus überwachen
+on({ id: dpDeviceOnline, change: 'ne' }, (obj) => {
+    deviceOnline = obj.state.val === true;
+    if (!deviceOnline) {
+        log('Gerät ist offline – PWM auf 0 gesetzt', 'warn');
+        setPWM(0);
+        setState(dpStatus, 'Gerät offline – PWM deaktiviert (400)', true);
+    } else {
+        log('Gerät ist wieder online – PWM-Steuerung wieder aktivierbar', 'info');
+        setState(dpStatus, 'Gerät online – PWM-Steuerung bereit (401)', true);
+
+        // Aktuellen Rohwert erneut verarbeiten
+        const input = parseFloat(getState(dpInputRaw).val);
+        if (!isNaN(input)) {
+            const percent = convertRawToPercent(input);
+            setPWM(percent);
+        }
+    }
+});
+
+// Lebenszeichen
+const checkansteuerungDP = '0_userdata.0.Heizstab.Skript_Check.PWM_Ansteuerung';
+setInterval(() => setState(checkansteuerungDP, Date.now(), true), 60000);
+
+
+// === Heizstab – Selbsttest-Modul ===
+
+const selbsttest_CONFIG = {
+    startTriggerDP: '0_userdata.0.Heizstab.Selbsttest_Start',   // optionaler manueller Start
+    istWertDP:      '0_userdata.0.Heizstab.Simulator.TEST_Heizstab_ISTWERT',
+    statusDP:       '0_userdata.0.Heizstab.Status',
+    pwmDP:          '0_userdata.0.Heizstab.PWM_Wert',
+    selbsttestDP:   '0_userdata.0.Heizstab.Selbsttest',
+
+    // Temperatursensoren (nur während Selbsttest prüfen)
+    tempExternDP:   'modbus.2.holdingRegisters.1030_Temp_2',
+    tempInternDP:   'modbus.2.holdingRegisters.1001_(R)_Temperatur_Sensor_intern',
+
+    leistung: 500,
+    toleranz: 10,      // in %
+    dauer: 10000       // in ms
+};
+
+function pwmSetzen(power) {
+    const begrenzt = Math.max(0, Math.min(3500, power));
+    setState(selbsttest_CONFIG.pwmDP, begrenzt, true);
+}
+
+function prozentAbweichung(soll, ist) {
+    return Math.abs(((ist - soll) / soll) * 100);
+}
+
+function warte(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fuehreSelbsttestAus() {
+    log('[Heizstab] Starte Selbsttest...', 'info');
+    setState(selbsttest_CONFIG.statusDP, 'Selbsttest aktiv [ST001]', true);
+    setState(selbsttest_CONFIG.selbsttestDP, true, true);
+
+    // Temperatursensorprüfung
+    const tempExt = getState(selbsttest_CONFIG.tempExternDP).val;
+    const tempInt = getState(selbsttest_CONFIG.tempInternDP).val;
+    if (tempExt < 10 || tempExt > 80 || tempInt < 10 || tempInt > 80) {
+        setState(selbsttest_CONFIG.statusDP, 'Temperatursensorfehler [TP001]', true);
+        log('[Heizstab] Selbsttest abgebrochen – Sensorfehler erkannt. [TP001]', 'warn');
+        pwmSetzen(0);
+        setState(selbsttest_CONFIG.selbsttestDP, false, true);
+        return;
+    }
+
+    pwmSetzen(selbsttest_CONFIG.leistung);
+    await warte(selbsttest_CONFIG.dauer);
+
+    const ist = getState(selbsttest_CONFIG.istWertDP).val || 0;
+    const abw = prozentAbweichung(selbsttest_CONFIG.leistung, ist);
+
+    if (abw > selbsttest_CONFIG.toleranz) {
+        log(`[Heizstab] Selbsttest fehlgeschlagen: Soll=${selbsttest_CONFIG.leistung} W, Ist=${ist} W, Abweichung=${abw.toFixed(1)}%`, 'warn');
+        setState(selbsttest_CONFIG.statusDP, 'Selbsttest fehlgeschlagen [ST002]', true);
+    } else {
+        log(`[Heizstab] Selbsttest erfolgreich: Ist=${ist} W, Abweichung=${abw.toFixed(1)}%`, 'info');
+        setState(selbsttest_CONFIG.statusDP, 'Selbsttest erfolgreich [ST003]', true);
+    }
+
+    pwmSetzen(0);
+    setState(selbsttest_CONFIG.selbsttestDP, false, true);
+}
+
+// Trigger über manuellen Startdatenpunkt (optional)
+on({ id: selbsttest_CONFIG.startTriggerDP, change: 'ne' }, async (obj) => {
+    if (obj.state?.val === true) {
+        await setStateAsync(selbsttest_CONFIG.startTriggerDP, false, true);
+        await fuehreSelbsttestAus();
+    }
+});
+
+// Lebenszeichen
+const checktestDP = '0_userdata.0.Heizstab.Skript_Check.Selbsttest';
+setInterval(() => setState(checktestDP, Date.now(), true), 60000);
