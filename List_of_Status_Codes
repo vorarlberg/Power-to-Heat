@@ -1,0 +1,19 @@
+| Code   | Statusmeldung                                                                |
+| ------ | ---------------------------------------------------------------------------- |
+| –      | Initialisiere…\:codex-file-citation                                          |
+| KL001  | Kalibrierung aktiv\:codex-file-citation                                      |
+| KL002  | Kalibrierung abgeschlossen\:codex-file-citation                              |
+| ST001  | Selbsttest aktiv\:codex-file-citation                                        |
+| TP001  | Temperatursensorfehler\:codex-file-citation                                  |
+| ST002  | Selbsttest fehlgeschlagen\:codex-file-citation                               |
+| ST003  | Selbsttest erfolgreich\:codex-file-citation                                  |
+| TP004  | Übertemperatur erkannt – Abschaltung\:codex-file-citation                    |
+| –      | Quittierung nicht möglich – Übertemperatur besteht noch\:codex-file-citation |
+| –      | Regelung pausiert (Kalibrierung aktiv)\:codex-file-citation                  |
+| RG001  | Regelung manuell deaktiviert\:codex-file-citation                            |
+| TP002  | Maximaltemperatur <tempExt>°C erreicht\:codex-file-citation                  |
+| TP003  | WW Sicherstellung aktiv\:codex-file-citation                                 |
+| RG003  | Regelung aktiv\:codex-file-citation                                          |
+| ABW001 | Abweichung erkannt. Heizstab gesperrt\:codex-file-citation                   |
+| RG004  | Überschuss zu gering. Heizstab aus\:codex-file-citation                      |
+| SYS000 | Initialisierung abgeschlossen. Warte auf PV-Überschuss\:codex-file-citation  |
