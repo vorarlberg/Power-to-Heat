@@ -70,6 +70,7 @@ const DP_UI_AMPEL                   = BASE + 'UI.Ampel';
 const DP_INFO_LAST_ERROR            = BASE + 'Info.LetzterFehler';             // ro string
 const DP_INFO_OFFS_LAST_HOUR        = BASE + 'Info.AbschaltungenLetzteStunde'; // ro number
 const DP_INFO_LAST_CMD_WATT         = BASE + 'Info.LetzterSollwertW';          // ro number W
+const DP_INFO_HEATER_CMD_WATT       = BASE + 'Info.AnsteuerleistungW';         // ro number W
 const DP_INFO_LAST_IST_WATT         = BASE + 'Info.LetzterIstwertW';           // ro number W
 const DP_INFO_SURPLUS_WATT          = BASE + 'Info.BerechneterUeberschussW';   // ro number W
 const DP_INFO_WATCHDOG              = BASE + 'Info.WatchdogMeldung';           // ro string
@@ -159,6 +160,7 @@ function setHeaterPower(watt) {
   const duty = Math.round((w / CFG_MAX_WATT) * CFG_PWM_DUTY_FULLSCALE);
   execCmd(`pigs hp ${CFG_PWM_GPIO} ${CFG_PWM_FREQ_HZ} ${duty}`);
   setState(DP_INFO_LAST_CMD_WATT, w, true);
+  setState(DP_INFO_HEATER_CMD_WATT, w, true);
   updateAmpelByRunState();
   return w;
 }
@@ -249,6 +251,7 @@ ensureStateCommon(DP_UI_AMPEL, { type:'string', role:'text', read:true, write:fa
 ensureStateCommon(DP_INFO_LAST_ERROR,     { type:'string', role:'text',        read:true,  write:false }, '');
 ensureStateCommon(DP_INFO_OFFS_LAST_HOUR, { type:'number', role:'value',       read:true,  write:false, min:0 }, 0);
 ensureStateCommon(DP_INFO_LAST_CMD_WATT,  { type:'number', role:'value.power', read:true,  write:false, unit:'W', min:0, max:CFG_MAX_WATT }, 0);
+ensureStateCommon(DP_INFO_HEATER_CMD_WATT,{ type:'number', role:'value.power', read:true,  write:false, unit:'W', min:0, max:CFG_MAX_WATT }, 0);
 ensureStateCommon(DP_INFO_LAST_IST_WATT,  { type:'number', role:'value.power', read:true,  write:false, unit:'W', min:0 }, 0);
 ensureStateCommon(DP_INFO_SURPLUS_WATT,   { type:'number', role:'value.power', read:true,  write:false, unit:'W' }, 0);
 ensureStateCommon(DP_INFO_WATCHDOG,       { type:'string', role:'text',        read:true,  write:false }, '');
