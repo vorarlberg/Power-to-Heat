@@ -491,9 +491,12 @@ async function regelzyklus() {
 
     // Sperre wegen Kalibrierung/Fehler?
     if (getState(DP.sperreRegelung).val === true) {
-        setState(DP.status, 'Regelung pausiert (Kalibrierung aktiv).', true);
+        const kal = getState(DP.kalRunning).val === true;
+        setState(DP.status, kal ? 'Regelung pausiert (Kalibrierung aktiv).' : 'Regelung gesperrt.', true);
         setState(DP.aktiv, false, true);
-        setPWM_TargetWatt(0);
+        if (!kal) {
+            setPWM_TargetWatt(0);
+        }
         return;
     }
 
