@@ -121,9 +121,6 @@ const DP = {
     uebertempExtern:  BASE + 'Parameter.Übertemperatur_extern',
     wwSicherAn:       BASE + 'Parameter.WW_Sicherstellung_AN',
 
-    // Simulator (optional; echte Istwerte kommen extern)
-    simIstWatt:       BASE + 'Simulator.TEST_Heizstab_ISTWERT',
-
     // Ampel
     ledGruen:         BASE + 'Ampel.LED_Grün',
     ledGelb:          BASE + 'Ampel.LED_Gelb',
@@ -165,8 +162,6 @@ ensureStateNumRW(DP.tempMax, LIMITS.wwTempMaxDefault, 'Max. WW-Temperatur', '°C
 ensureStateNumRW(DP.uebertempIntern, LIMITS.uebertempInternDefault, 'Übertemp.-Grenze intern', '°C', 20, 100);
 ensureStateNumRW(DP.uebertempExtern, LIMITS.uebertempExternDefault, 'Übertemp.-Grenze extern', '°C', 20, 100);
 ensureStateBoolRW(DP.wwSicherAn, false, 'WW-Sicherstellung aktivieren');
-
-ensureStateNumRW(DP.simIstWatt, 0, 'SIM: Heizstab IST (nur Test)', 'W', 0, 10000);
 
 ensureStateBoolRW(DP.ledGruen, false, 'LED Grün');
 ensureStateBoolRW(DP.ledGelb, false, 'LED Gelb');
@@ -377,7 +372,7 @@ async function runKalibrierung() {
     for (let p = 0; p <= KAL.maxPower; p += KAL.schritt) {
         setPWM_Immediate(p);                 // OHNE Rampe kalibrieren
         await wait(TIMES.kalibrierPauseMs);
-        const ist = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
+        const ist = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
         daten[p] = ist;
         log(`[Kalibrierung] Soll ${p} W → Ist ${ist} W`, 'info');
     }
@@ -429,7 +424,7 @@ async function runSelbsttest() {
     setPWM_TargetWatt(SELF.leistung);   // mit Rampe (≈5 s bis 500 W)
     await wait(TIMES.selbsttestDauerMs);
 
-    const ist = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
+    const ist = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
     const abw = prozentAbweichung(SELF.leistung, ist);
 
     if (abw > SELF.toleranzProzent) {
@@ -538,7 +533,7 @@ async function regelzyklus() {
             // Plausibilitätscheck: gerampte Sollleistung vs. Ist-Leistung
             await wait(4000);
             const sollWW = Number(getState(DP.pwmWatt).val) || 0;
-            const istWW = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
+            const istWW = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
             const abwWW = prozentAbweichung(sollWW, istWW);
             if (abwWW > 10) {
                 setState(DP.status, 'Abweichung erkannt. Heizstab gesperrt. [ABW001]', true);
@@ -562,7 +557,7 @@ async function regelzyklus() {
         // Plausibilitätscheck: gerampte Sollleistung vs. Ist-Leistung
         await wait(4000);
         const sollPV = Number(getState(DP.pwmWatt).val) || 0;
-        const istPV = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
+        const istPV = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
         const abwPV = prozentAbweichung(sollPV, istPV);
         if (abwPV > 10) {
             setState(DP.status, 'Abweichung erkannt. Heizstab gesperrt. [ABW001]', true);
