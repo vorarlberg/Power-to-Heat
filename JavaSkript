@@ -386,6 +386,7 @@ async function runKalibrierung() {
     _kalBlink(false);
     setState(DP.kalRunning, false, true);
     setState(DP.sperreRegelung, false, true);
+    regelzyklus();
 }
 
 // Trigger
@@ -419,6 +420,7 @@ async function runSelbsttest() {
         log('[Selbsttest] Abbruch – Sensorfehler [TP001]', 'warn');
         setPWM_Immediate(0);
         setState(DP.selfFlag, false, true);
+        regelzyklus();
         return;
     }
 
@@ -438,6 +440,7 @@ async function runSelbsttest() {
 
     setPWM_TargetWatt(0);   // geordneter Ramp-Stop
     setState(DP.selfFlag, false, true);
+    regelzyklus();
 }
 
 on({ id: DP.selfStart, change: 'ne' }, async (obj) => {
@@ -445,6 +448,17 @@ on({ id: DP.selfStart, change: 'ne' }, async (obj) => {
         setState(DP.selfStart, false, true); // Button zurücksetzen
         await runSelbsttest();
     }
+});
+
+// Sofortige Reaktion auf Buttons und Schalter
+on({ id: DP.resetFail, change: 'ne' }, (obj) => {
+    if (obj.state?.val === true) regelzyklus();
+});
+on({ id: DP.regelungEnable, change: 'ne' }, () => {
+    regelzyklus();
+});
+on({ id: DP.wwSicherAn, change: 'ne' }, () => {
+    regelzyklus();
 });
 
 
