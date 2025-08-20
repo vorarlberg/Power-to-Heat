@@ -534,6 +534,19 @@ async function regelzyklus() {
             setPWM_TargetWatt(leistung);
             setState(DP.aktiv, true, true);
             setState(DP.status, 'WW Sicherstellung aktiv. [TP003]', true);
+
+            // Plausibilitätscheck: gerampte Sollleistung vs. Ist-Leistung
+            await wait(4000);
+            const sollWW = Number(getState(DP.pwmWatt).val) || 0;
+            const istWW = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
+            const abwWW = prozentAbweichung(sollWW, istWW);
+            if (abwWW > 10) {
+                setState(DP.status, 'Abweichung erkannt. Heizstab gesperrt. [ABW001]', true);
+                log(`[Heizstab] Abweichung >10%: Soll=${sollWW}W Ist=${istWW}W Abw=${abwWW.toFixed(1)}%`, 'warn');
+                setPWM_Immediate(0);             // sofort aus bei Fehlverhalten
+                setState(DP.aktiv, false, true);
+                _sperreAktiv = true; // bis Reset
+            }
             return;
         }
     }
@@ -546,13 +559,14 @@ async function regelzyklus() {
         setState(DP.aktiv, true, true);
         setState(DP.status, 'Regelung aktiv. [RG003]', true);
 
-        // Plausibilitätscheck mit echter Ist-Leistung
+        // Plausibilitätscheck: gerampte Sollleistung vs. Ist-Leistung
         await wait(4000);
-        const istNeu = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
-        const abw = prozentAbweichung(leistung, istNeu);
-        if (abw > 10) {
+        const sollPV = Number(getState(DP.pwmWatt).val) || 0;
+        const istPV = Number(getState(EXTERNAL.istLeistungW)?.val) || Number(getState(DP.simIstWatt)?.val) || 0;
+        const abwPV = prozentAbweichung(sollPV, istPV);
+        if (abwPV > 10) {
             setState(DP.status, 'Abweichung erkannt. Heizstab gesperrt. [ABW001]', true);
-            log(`[Heizstab] Abweichung >10%: Soll=${leistung}W Ist=${istNeu}W Abw=${abw.toFixed(1)}%`, 'warn');
+            log(`[Heizstab] Abweichung >10%: Soll=${sollPV}W Ist=${istPV}W Abw=${abwPV.toFixed(1)}%`, 'warn');
             setPWM_Immediate(0);             // sofort aus bei Fehlverhalten
             setState(DP.aktiv, false, true);
             _sperreAktiv = true; // bis Reset
