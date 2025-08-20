@@ -13,7 +13,8 @@ const TIMES = {
     regelIntervallSek: 30,     // Hauptregelzyklus
     ampelBlinkMs: 500,         // Blinkfrequenz LEDs
     kalibrierPauseMs: 10000,   // Mess-Stabilisierungszeit je Kalibrierschritt
-    selbsttestDauerMs: 10000   // Dauer der Lastaufbringung im Selbsttest
+    selbsttestDauerMs: 10000,  // Dauer der Lastaufbringung im Selbsttest
+    plausiCheckMs: 4000        // Wartezeit vor Plausibilitätsprüfung
 };
 
 // --- Leistungs- / Temperatur-Grenzen & Hysterese ---
@@ -531,7 +532,7 @@ async function regelzyklus() {
             setState(DP.status, 'WW Sicherstellung aktiv. [TP003]', true);
 
             // Plausibilitätscheck: gerampte Sollleistung vs. Ist-Leistung
-            await wait(4000);
+            await wait(TIMES.plausiCheckMs);
             const sollWW = Number(getState(DP.pwmWatt).val) || 0;
             const istWW = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
             const abwWW = prozentAbweichung(sollWW, istWW);
@@ -555,7 +556,7 @@ async function regelzyklus() {
         setState(DP.status, 'Regelung aktiv. [RG003]', true);
 
         // Plausibilitätscheck: gerampte Sollleistung vs. Ist-Leistung
-        await wait(4000);
+        await wait(TIMES.plausiCheckMs);
         const sollPV = Number(getState(DP.pwmWatt).val) || 0;
         const istPV = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
         const abwPV = prozentAbweichung(sollPV, istPV);
