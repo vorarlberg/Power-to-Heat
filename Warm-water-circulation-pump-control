@@ -133,4 +133,3 @@ if (initMode === 'on') {
 onStop(() => {
     stopTimer();
 }, 200);
-
