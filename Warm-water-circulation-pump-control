@@ -53,7 +53,7 @@ function startTimer(minutes) {
 
 function updateRemaining() {
     const remainingMin = Math.ceil(Math.max(0, remainingSec) / 60);
-    setState(DP.remaining, remainingMin);
+    setState(DP.remaining, remainingMin, true);
     if (remainingSec <= 0) {
         stopTimer();
         turnOffPump();
