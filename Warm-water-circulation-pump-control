@@ -1,11 +1,18 @@
 /**
  * WW-Pumpe Steuerung für ioBroker
  * Schaltet die Pumpe (Shelly) für eine vorgegebene Laufzeit oder manuell.
- * Alle Datenpunkte werden unter 0_userdata.0.WW-Pumpe angelegt.
+ * Alle Datenpunkte werden unter 0_userdata.0.Heizung.WW-Pumpe angelegt.
  */
 
 // ===== KONFIGURATION =====
-const BASE = '0_userdata.0.WW-Pumpe.';
+const BASE = '0_userdata.0.Heizung.WW-Pumpe.';
+
+const SHELLY_SWITCH = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.Relay0.Switch';
+const SHELLY_ONLINE = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.online';
+
+const DEFAULT_DURATION_MIN = 30;           // Standardlaufzeit bei Neuerstellung
+const COUNTDOWN_INTERVAL_MS = 1000;        // Auflösung Restlaufzeit
+
 const DP = {
     start: BASE + 'Start',            // Button zum Starten
     duration: BASE + 'LaufzeitMin',   // Vorgabe der Laufzeit in Minuten
@@ -14,14 +21,9 @@ const DP = {
     status: BASE + 'Status'           // Statusausgabe
 };
 
-const SHELLY_SWITCH = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.Relay0.Switch';
-const SHELLY_ONLINE = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.online';
-
-const COUNTDOWN_INTERVAL_MS = 1000; // Auflösung Restlaufzeit
-
 // ===== DATENPUNKTE ANLEGEN =====
 createState(DP.start, false, {name: 'Pumpe starten', type: 'boolean', role: 'button', read: true, write: true});
-createState(DP.duration, 5, {name: 'Laufzeit (min)', type: 'number', role: 'value', unit: 'min', read: true, write: true});
+createState(DP.duration, DEFAULT_DURATION_MIN, {name: 'Laufzeit (min)', type: 'number', role: 'value', unit: 'min', read: true, write: true});
 createState(DP.remaining, 0, {name: 'Restlaufzeit (min)', type: 'number', role: 'value', unit: 'min', read: true, write: false});
 createState(DP.manual, 'auto', {name: 'Manuell', type: 'string', role: 'state', read: true, write: true, states: {auto: 'Auto', on: 'An', off: 'Aus'}});
 createState(DP.status, 'Bereit', {name: 'Status', type: 'string', role: 'state', read: true, write: false});
