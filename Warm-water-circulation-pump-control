@@ -60,7 +60,7 @@ function updateRemaining() {
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
     } else {
-        setState(DP.status, remainingMin, true);
+        setState(DP.status, String(remainingMin), true);
     }
 }
 
