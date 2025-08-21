@@ -1,4 +1,4 @@
- * WW-Pumpe Steuerung für ioBroker
+ /** WW-Pumpe Steuerung für ioBroker
  * Schaltet die Pumpe (Shelly) für eine vorgegebene Laufzeit oder manuell.
  * Alle Datenpunkte werden unter 0_userdata.0.Heizung.WW-Pumpe angelegt.
  */
