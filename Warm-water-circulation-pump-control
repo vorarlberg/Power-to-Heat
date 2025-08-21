@@ -56,7 +56,7 @@ function updateRemaining() {
         stopTimer();
         setState(SHELLY_SWITCH, false);
         setState(DP.status, 'Bereit', true);
-        setState(DP.remaining, getState(DP.duration).val, true);
+
     }
 }
 
@@ -66,6 +66,7 @@ function stopTimer() {
         countdown = null;
     }
     remainingSec = 0;
+
 }
 
 // ===== EVENTS =====
@@ -82,27 +83,17 @@ on({id: DP.manual, change: 'ne'}, obj => {
         if (getState(SHELLY_ONLINE).val) {
             setState(SHELLY_SWITCH, true);
             setState(DP.status, 'Manuell AN', true);
-            setState(DP.remaining, 99, true);
+
         } else {
             log('WW-Pumpe: Shelly offline, Manuell AN nicht m\u00f6glich');
             setState(DP.manual, 'auto', true);
             setState(DP.status, 'Bereit', true);
-            setState(DP.remaining, getState(DP.duration).val, true);
+
         }
     } else if (mode === 'off') {
         setState(SHELLY_SWITCH, false);
         setState(DP.status, 'Manuell AUS', true);
-        setState(DP.remaining, 0, true);
-    } else {
-        setState(SHELLY_SWITCH, false);
-        setState(DP.status, 'Bereit', true);
-        setState(DP.remaining, getState(DP.duration).val, true);
-    }
-});
 
-on({id: DP.duration, change: 'ne'}, obj => {
-    if (getState(DP.manual).val === 'auto' && !countdown) {
-        setState(DP.remaining, obj.state.val, true);
     }
 });
 
@@ -114,20 +105,12 @@ if (initMode === 'on') {
     if (getState(SHELLY_ONLINE).val) {
         setState(SHELLY_SWITCH, true);
         setState(DP.status, 'Manuell AN', true);
-        setState(DP.remaining, 99, true);
-    } else {
-        setState(DP.manual, 'auto', true);
-        setState(DP.status, 'Bereit', true);
-        setState(DP.remaining, getState(DP.duration).val, true);
+
     }
 } else if (initMode === 'off') {
     setState(SHELLY_SWITCH, false);
     setState(DP.status, 'Manuell AUS', true);
-    setState(DP.remaining, 0, true);
-} else {
-    setState(SHELLY_SWITCH, false);
-    setState(DP.status, 'Bereit', true);
-    setState(DP.remaining, getState(DP.duration).val, true);
+
 }
 
 onStop(() => {
