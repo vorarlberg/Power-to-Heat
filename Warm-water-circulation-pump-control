@@ -53,14 +53,14 @@ function startTimer(minutes) {
 
 function updateRemaining() {
     const remainingMin = Math.ceil(Math.max(0, remainingSec) / 60);
-    setState(DP.remaining, remainingMin);
+    setState(DP.remaining, remainingMin, true);
     if (remainingSec <= 0) {
         stopTimer();
         turnOffPump();
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
     } else {
-        setState(DP.status, remainingMin, true);
+        setState(DP.status, String(remainingMin), true);
     }
 }
 
