@@ -40,7 +40,6 @@ function startTimer(minutes) {
     }
     remainingSec = Math.round(minutes * 60);
     setState(SHELLY_SWITCH, true);
-    setState(DP.status, 'L\u00e4uft mit Restzeit', true);
     updateRemaining();
     if (countdown) clearInterval(countdown);
     countdown = setInterval(() => {
@@ -50,12 +49,15 @@ function startTimer(minutes) {
 }
 
 function updateRemaining() {
-    setState(DP.remaining, Math.max(0, remainingSec) / 60);
+    const remainingMin = Math.ceil(Math.max(0, remainingSec) / 60);
+    setState(DP.remaining, remainingMin);
     if (remainingSec <= 0) {
         stopTimer();
         setState(SHELLY_SWITCH, false);
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
+    } else {
+        setState(DP.status, remainingMin, true);
     }
 }
 
