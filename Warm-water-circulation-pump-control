@@ -1,13 +1,16 @@
- /** WW-Pumpe Steuerung für ioBroker
- * Schaltet die Pumpe (Shelly) für eine vorgegebene Laufzeit oder manuell.
- * Alle Datenpunkte werden unter 0_userdata.0.Heizung.WW-Pumpe angelegt.
- */
+/** WW-Pumpe Steuerung für ioBroker
+* Schaltet die Pumpe (Shelly) für eine vorgegebene Laufzeit oder manuell.
+* Alle Datenpunkte werden unter 0_userdata.0.Heizung.WW-Pumpe angelegt.
+*/
+
+const exec = require('child_process').exec;
 
 // ===== KONFIGURATION =====
 const BASE = '0_userdata.0.Heizung.WW-Pumpe.';
 
 const SHELLY_SWITCH = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.Relay0.Switch';
 const SHELLY_ONLINE = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.online';
+const RESTART_CMD = 'iobroker restart energiefluss-erweitert.2';
 
 const DEFAULT_DURATION_MIN = 30;           // Standardlaufzeit bei Neuerstellung
 const COUNTDOWN_INTERVAL_MS = 1000;        // Auflösung Restlaufzeit
@@ -53,7 +56,7 @@ function updateRemaining() {
     setState(DP.remaining, remainingMin);
     if (remainingSec <= 0) {
         stopTimer();
-        setState(SHELLY_SWITCH, false);
+        turnOffPump();
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
     } else {
@@ -67,6 +70,12 @@ function stopTimer() {
         countdown = null;
     }
     remainingSec = 0;
+}
+
+function turnOffPump() {
+    const wasOn = getState(SHELLY_SWITCH).val;
+    setState(SHELLY_SWITCH, false);
+    if (wasOn) exec(RESTART_CMD);
 }
 
 // ===== EVENTS =====
@@ -91,11 +100,11 @@ on({id: DP.manual, change: 'ne'}, obj => {
             setState(DP.remaining, getState(DP.duration).val, true);
         }
     } else if (mode === 'off') {
-        setState(SHELLY_SWITCH, false);
+        turnOffPump();
         setState(DP.status, 'Manuell AUS', true);
         setState(DP.remaining, 0, true);
     } else {
-        setState(SHELLY_SWITCH, false);
+        turnOffPump();
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
     }
@@ -122,11 +131,11 @@ if (initMode === 'on') {
         setState(DP.remaining, getState(DP.duration).val, true);
     }
 } else if (initMode === 'off') {
-    setState(SHELLY_SWITCH, false);
+    turnOffPump();
     setState(DP.status, 'Manuell AUS', true);
     setState(DP.remaining, 0, true);
 } else {
-    setState(SHELLY_SWITCH, false);
+    turnOffPump();
     setState(DP.status, 'Bereit', true);
     setState(DP.remaining, getState(DP.duration).val, true);
 }
