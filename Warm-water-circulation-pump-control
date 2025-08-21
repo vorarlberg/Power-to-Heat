@@ -56,6 +56,7 @@ function updateRemaining() {
         stopTimer();
         setState(SHELLY_SWITCH, false);
         setState(DP.status, 'Bereit', true);
+
     }
 }
 
@@ -65,7 +66,7 @@ function stopTimer() {
         countdown = null;
     }
     remainingSec = 0;
-    setState(DP.remaining, 0);
+
 }
 
 // ===== EVENTS =====
@@ -82,17 +83,17 @@ on({id: DP.manual, change: 'ne'}, obj => {
         if (getState(SHELLY_ONLINE).val) {
             setState(SHELLY_SWITCH, true);
             setState(DP.status, 'Manuell AN', true);
+
         } else {
             log('WW-Pumpe: Shelly offline, Manuell AN nicht m\u00f6glich');
             setState(DP.manual, 'auto', true);
             setState(DP.status, 'Bereit', true);
+
         }
     } else if (mode === 'off') {
         setState(SHELLY_SWITCH, false);
         setState(DP.status, 'Manuell AUS', true);
-    } else {
-        setState(SHELLY_SWITCH, false);
-        setState(DP.status, 'Bereit', true);
+
     }
 });
 
@@ -104,16 +105,12 @@ if (initMode === 'on') {
     if (getState(SHELLY_ONLINE).val) {
         setState(SHELLY_SWITCH, true);
         setState(DP.status, 'Manuell AN', true);
-    } else {
-        setState(DP.manual, 'auto', true);
-        setState(DP.status, 'Bereit', true);
+
     }
 } else if (initMode === 'off') {
     setState(SHELLY_SWITCH, false);
     setState(DP.status, 'Manuell AUS', true);
-} else {
-    setState(SHELLY_SWITCH, false);
-    setState(DP.status, 'Bereit', true);
+
 }
 
 onStop(() => {
