@@ -83,7 +83,14 @@ function turnOffPump() {
 on({id: DP.start, val: true}, obj => {
     const minutes = parseFloat(getState(DP.duration).val) || 0;
     startTimer(minutes);
-    setState(DP.start, false, true); // Button zur\u00fccksetzen
+    setState(DP.start, false, true); // Button zurücksetzen
+});
+
+on({id: SHELLY_BUTTON, change: 'any'}, obj => {
+    if (obj.state.val === 1 && obj.state.ack) {
+        const minutes = parseFloat(getState(DP.duration).val) || 0;
+        startTimer(minutes);
+    }
 });
 
 on({id: SHELLY_BUTTON, change: 'ne'}, obj => {
