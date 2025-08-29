@@ -10,6 +10,7 @@ const BASE = '0_userdata.0.Heizung.WW-Pumpe.';
 
 const SHELLY_SWITCH = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.Relay0.Switch';
 const SHELLY_ONLINE = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.online';
+const SHELLY_BUTTON = 'shelly.1.ble.38:39:8f:98:06:9f.button_1';
 const RESTART_CMD = 'iobroker restart energiefluss-erweitert.2';
 
 const DEFAULT_DURATION_MIN = 30;           // Standardlaufzeit bei Neuerstellung
@@ -83,6 +84,13 @@ on({id: DP.start, val: true}, obj => {
     const minutes = parseFloat(getState(DP.duration).val) || 0;
     startTimer(minutes);
     setState(DP.start, false, true); // Button zur\u00fccksetzen
+});
+
+on({id: SHELLY_BUTTON, change: 'ne'}, obj => {
+    if (obj.state.val) {
+        const minutes = parseFloat(getState(DP.duration).val) || 0;
+        startTimer(minutes);
+    }
 });
 
 on({id: DP.manual, change: 'ne'}, obj => {
