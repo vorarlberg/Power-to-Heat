@@ -397,10 +397,10 @@ async function runKalibrierung() {
 }
 
 // Trigger
-on({ id: DP.kalStart, change: 'ne' }, async (obj) => {
-    if (obj.state?.val === true) {
-        setState(DP.kalStart, false, true);  // Button zurücksetzen
+on({ id: DP.kalStart, change: 'any', ack: false }, async (obj) => {
+    if (obj.state.val === true) {
         await runKalibrierung();
+        setState(DP.kalStart, false, true);  // Button zurücksetzen
     }
 });
 
@@ -450,16 +450,19 @@ async function runSelbsttest() {
     regelzyklus();
 }
 
-on({ id: DP.selfStart, change: 'ne' }, async (obj) => {
-    if (obj.state?.val === true) {
-        setState(DP.selfStart, false, true); // Button zurücksetzen
+on({ id: DP.selfStart, change: 'any', ack: false }, async (obj) => {
+    if (obj.state.val === true) {
         await runSelbsttest();
+        setState(DP.selfStart, false, true); // Button zurücksetzen
     }
 });
 
 // Sofortige Reaktion auf Buttons und Schalter
-on({ id: DP.resetFail, change: 'ne' }, (obj) => {
-    if (obj.state?.val === true) regelzyklus();
+on({ id: DP.resetFail, change: 'any', ack: false }, (obj) => {
+    if (obj.state.val === true) {
+        regelzyklus();
+        setState(DP.resetFail, false, true);
+    }
 });
 on({ id: DP.regelungEnable, change: 'ne' }, () => {
     regelzyklus();
