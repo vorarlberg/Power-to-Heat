@@ -9583,7 +9583,7 @@ function HandleScreensaverUpdate(): void {
                 for (let i = 1; i < maxEntities; i++) {
                     let TempMin = 0;
                     let TempMax = 0;
-                    let DayOfWeek = 0;
+                    let DayOfWeek: string | number = 0;
                     let WeatherIcon = '0';
                     let WheatherColor = 0;
 
