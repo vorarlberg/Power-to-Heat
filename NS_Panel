@@ -10149,20 +10149,57 @@ function GetPirateWeatherIcon(icon: string): string {
                 return 'weather-sunny';
             case 'clear-night':
                 return 'weather-night';
+            case 'mostly-clear-day':
+                return 'weather-sunny';
+            case 'mostly-clear-night':
+                return 'weather-night';
             case 'rain':
                 return 'weather-rainy';
+            case 'light-rain':
+                return 'weather-rainy';
+            case 'heavy-rain':
+                return 'weather-pouring';
+            case 'drizzle':
+            case 'possible-rain-day':
+            case 'possible-rain-night':
+            case 'possible-precipitation-day':
+            case 'possible-precipitation-night':
+            case 'precipitation':
+                return 'weather-partly-rainy';
             case 'snow':
+                return 'weather-snowy';
+            case 'flurries':
+            case 'light-snow':
+            case 'heavy-snow':
+            case 'possible-snow-day':
+            case 'possible-snow-night':
                 return 'weather-snowy';
             case 'sleet':
                 return 'weather-snowy-rainy';
+            case 'very-light-sleet':
+            case 'light-sleet':
+            case 'heavy-sleet':
+            case 'possible-sleet-day':
+            case 'possible-sleet-night':
+                return 'weather-snowy-rainy';
             case 'wind':
                 return 'weather-windy';
+            case 'breezy':
+                return 'weather-windy';
+            case 'dangerous-wind':
+                return 'weather-tornado';
             case 'fog':
+                return 'weather-fog';
+            case 'mist':
+            case 'haze':
+            case 'smoke':
                 return 'weather-fog';
             case 'cloudy':
                 return 'weather-cloudy';
+            case 'mostly-cloudy-day':
             case 'partly-cloudy-day':
                 return 'weather-partly-cloudy';
+            case 'mostly-cloudy-night':
             case 'partly-cloudy-night':
                 return 'weather-night-partly-cloudy';
             case 'hail':
@@ -10187,18 +10224,55 @@ function GetPirateWeatherIconColor(icon: string): number {
                 return rgb_dec565(swSunny);
             case 'clear-night':
                 return rgb_dec565(swClearNight);
+            case 'mostly-clear-day':
+                return rgb_dec565(swSunny);
+            case 'mostly-clear-night':
+                return rgb_dec565(swClearNight);
             case 'rain':
+                return rgb_dec565(swRainy);
+            case 'light-rain':
+                return rgb_dec565(swRainy);
+            case 'heavy-rain':
+                return rgb_dec565(swPouring);
+            case 'drizzle':
+            case 'possible-rain-day':
+            case 'possible-rain-night':
+            case 'possible-precipitation-day':
+            case 'possible-precipitation-night':
+            case 'precipitation':
                 return rgb_dec565(swRainy);
             case 'snow':
                 return rgb_dec565(swSnowy);
+            case 'flurries':
+            case 'light-snow':
+            case 'heavy-snow':
+            case 'possible-snow-day':
+            case 'possible-snow-night':
+                return rgb_dec565(swSnowy);
             case 'sleet':
+                return rgb_dec565(swSnowyRainy);
+            case 'very-light-sleet':
+            case 'light-sleet':
+            case 'heavy-sleet':
+            case 'possible-sleet-day':
+            case 'possible-sleet-night':
                 return rgb_dec565(swSnowyRainy);
             case 'wind':
                 return rgb_dec565(swWindy);
+            case 'breezy':
+                return rgb_dec565(swWindy);
+            case 'dangerous-wind':
+                return rgb_dec565(swExceptional);
             case 'fog':
+                return rgb_dec565(swFog);
+            case 'mist':
+            case 'haze':
+            case 'smoke':
                 return rgb_dec565(swFog);
             case 'cloudy':
                 return rgb_dec565(swCloudy);
+            case 'mostly-cloudy-day':
+            case 'mostly-cloudy-night':
             case 'partly-cloudy-day':
             case 'partly-cloudy-night':
                 return rgb_dec565(swPartlycloudy);
