@@ -192,7 +192,7 @@ Mögliche Aliase: (Vorzugsweise mit ioBroker-Adapter "Geräte verwalten" konfigu
     Temperatur          - Anzeige von Temperatur - Datenpunkten, analog Info
     Feuchtigkeit        - Anzeige von Humidity - Datenpunkten, analog Info
     Medien              - Steuerung von Alexa, etc. - Über Alias-Manager im Verzeichnis Player automatisch anlegen (Geräte-Manager funktioniert nicht)
-    Wettervorhersage    - Aktuelle Außen-Temperatur (Temp) und aktuelles AccuWeather-Icon (Icon) für Screensaver
+    Wettervorhersage    - Aktuelle Außen-Temperatur (Temp) und aktuelles PirateWeather-Icon (Icon) für Screensaver
     Warnung             - Abfall, etc. -- Info mit IconColor
 
     Timer (siehe Wiki)
@@ -212,7 +212,7 @@ Tasmota-Status0 - (zyklische Ausführung)
 
 Erforderliche Adapter:
 
-    AccuWeather oder DasWetter: - Bei Nutzung der Wetterfunktionen (und zur Icon-Konvertierung) im Screensaver
+    PirateWeather oder DasWetter: - Bei Nutzung der Wetterfunktionen (und zur Icon-Konvertierung) im Screensaver
     Alexa2:                     - Bei Nutzung der dynamischen SpeakerList in der cardMedia
     Geräte verwalten            - Für Erstellung der Aliase
     MQTT-Adapter                - Für Kommunikation zwischen Skript und Tasmota
@@ -268,9 +268,9 @@ let Debug: boolean = false;
 
 /***** 3. Weather adapter Config *****/
 
-    // DE: Mögliche Wetteradapter 'accuweather.0.' oder 'daswetter.0.'
-    // EN: Possible weather adapters 'accuweather.0.' or 'the weather.0.'
-    const weatherAdapterInstance: string = 'accuweather.0.';
+    // DE: Mögliche Wetteradapter 'pirate-weather.0.' oder 'daswetter.0.'
+    // EN: Possible weather adapters 'pirate-weather.0.' or 'the weather.0.'
+    const weatherAdapterInstance: string = 'pirate-weather.0.';
     
     // DE: Mögliche Werte: 'Min', 'Max' oder 'MinMax' im Screensaver
     // EN: Possible values: 'Min', 'Max' or 'MinMax' in the screensaver
@@ -924,7 +924,7 @@ export const config: Config = {
     bottomScreensaverEntity: [
         // bottomScreensaverEntity 1
         {
-            ScreensaverEntity: 'accuweather.0.Daily.Day1.Sunrise',
+            ScreensaverEntity: 'pirate-weather.0.weather.daily.0.sunriseTime',
             ScreensaverEntityFactor: 1,
             ScreensaverEntityDecimalPlaces: 0,
             ScreensaverEntityDateFormat: {hour: '2-digit', minute: '2-digit'}, // Description at Wiki-Pages
@@ -936,18 +936,18 @@ export const config: Config = {
         },
         // bottomScreensaverEntity 2
         {
-            ScreensaverEntity: 'accuweather.0.Current.WindSpeed',
+            ScreensaverEntity: 'pirate-weather.0.weather.currently.windSpeed',
             ScreensaverEntityFactor: (1000 / 3600),
             ScreensaverEntityDecimalPlaces: 1,
             ScreensaverEntityIconOn: 'weather-windy',
             ScreensaverEntityIconOff: null,
-            ScreensaverEntityText: "Wind",
+            ScreensaverEntityText: 'Wind',
             ScreensaverEntityUnitText: 'm/s',
             ScreensaverEntityIconColor: {'val_min': 0, 'val_max': 120}
         },
         // bottomScreensaverEntity 3
         {
-            ScreensaverEntity: 'accuweather.0.Current.WindGust',
+            ScreensaverEntity: 'pirate-weather.0.weather.currently.windGust',
             ScreensaverEntityFactor: (1000 / 3600),
             ScreensaverEntityDecimalPlaces: 1,
             ScreensaverEntityIconOn: 'weather-tornado',
@@ -958,7 +958,7 @@ export const config: Config = {
         },
         // bottomScreensaverEntity 4
         {
-            ScreensaverEntity: 'accuweather.0.Current.WindDirectionText',
+            ScreensaverEntity: 'pirate-weather.0.weather.currently.windBearing',
             ScreensaverEntityFactor: 1,
             ScreensaverEntityDecimalPlaces: 0,
             ScreensaverEntityIconOn: 'windsock',
@@ -969,8 +969,8 @@ export const config: Config = {
         },
         // bottomScreensaverEntity 5 (for Alternative and Advanced Screensaver)
         {
-            ScreensaverEntity: 'accuweather.0.Current.RelativeHumidity',
-            ScreensaverEntityFactor: 1,
+            ScreensaverEntity: 'pirate-weather.0.weather.currently.humidity',
+            ScreensaverEntityFactor: 100,
             ScreensaverEntityDecimalPlaces: 1,
             ScreensaverEntityIconOn: 'water-percent',
             ScreensaverEntityIconOff: null,
@@ -1161,8 +1161,8 @@ async function CheckConfigParameters() {
                 log('Weather adapter: << weatherAdapterInstance - ' + weatherAdapterInstance + ' >> is not installed. Please Check Adapter!', 'error');
             }
         }
-        if (weatherAdapterInstance.substring(0, weatherAdapterInstance.length - 3) == 'accuweather') {
-            if (existsObject(weatherAdapterInstance + 'Current.WeatherIcon') == false) {
+        if (weatherAdapterInstance.substring(0, weatherAdapterInstance.length - 3) == 'pirate-weather') {
+            if (existsObject(weatherAdapterInstance + 'weather.currently.icon') == false) {
                 log('Weather adapter: << weatherAdapterInstance - ' + weatherAdapterInstance + ' >> is not installed. Please Check Adapter!', 'error');
             }
         }
@@ -2098,7 +2098,7 @@ async function SubscribeMRIcons() {
 }
 SubscribeMRIcons();
 
-// Create atomatically Wheather-Alias, if exists accuweather.0. and is not exists Config-Wheather-Alias
+// Create automatically Weather-Alias, if pirate-weather.0. exists and Config-Weather-Alias does not
 async function CreateWeatherAlias() {
     try {
         if (autoCreateAlias) {
@@ -2127,38 +2127,49 @@ async function CreateWeatherAlias() {
                 } catch (err: any) {
                     log('error at function CreateWeatherAlias daswetter.' + weatherAdapterInstanceNumber + '. : ' + err.message, 'warn');
                 }
-            } else if (weatherAdapterInstance == 'accuweather.' + weatherAdapterInstanceNumber + '.') {
+            } else if (weatherAdapterInstance == 'pirate-weather.' + weatherAdapterInstanceNumber + '.') {
                 try {
                     if (isSetOptionActive) {
-                        if (!existsState(config.weatherEntity + '.ICON') && existsState('accuweather.' + weatherAdapterInstanceNumber + '.Current.WeatherIcon')) {
-                            log('Weather alias for accuweather.' + weatherAdapterInstanceNumber + '. does not exist yet, will be created now', 'info');
+                        if (!existsState(config.weatherEntity + '.ICON') && existsState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.currently.icon')) {
+                            log('Weather alias for pirate-weather.' + weatherAdapterInstanceNumber + '. does not exist yet, will be created now', 'info');
                             setObject(config.weatherEntity, { _id: config.weatherEntity, type: 'channel', common: { role: 'weatherCurrent', name: 'media' }, native: {} });
-                            await createAliasAsync(config.weatherEntity + '.ICON', 'accuweather.' + weatherAdapterInstanceNumber + '.Current.WeatherIcon', true, <iobJS.StateCommon>{
-                                type: 'number',
-                                role: 'value',
+                            await createAliasAsync(config.weatherEntity + '.ICON', 'pirate-weather.' + weatherAdapterInstanceNumber + '.weather.currently.icon', true, <iobJS.StateCommon>{
+                                type: 'string',
+                                role: 'text',
                                 name: 'ICON',
+                                read: true,
+                                write: false
                             });
-                            await createAliasAsync(config.weatherEntity + '.TEMP', 'accuweather.' + weatherAdapterInstanceNumber + '.Current.Temperature', true, <iobJS.StateCommon>{
+                            await createAliasAsync(config.weatherEntity + '.TEMP', 'pirate-weather.' + weatherAdapterInstanceNumber + '.weather.currently.temperature', true, <iobJS.StateCommon>{
                                 type: 'number',
                                 role: 'value.temperature',
                                 name: 'TEMP',
+                                read: true,
+                                write: false,
+                                unit: '°C'
                             });
-                            await createAliasAsync(config.weatherEntity + '.TEMP_MIN', 'accuweather.' + weatherAdapterInstanceNumber + '.Daily.Day1.Temperature.Minimum', true, <iobJS.StateCommon>{
+                            await createAliasAsync(config.weatherEntity + '.TEMP_MIN', 'pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.0.temperatureLow', true, <iobJS.StateCommon>{
                                 type: 'number',
                                 role: 'value.temperature.forecast.0',
                                 name: 'TEMP_MIN',
+                                read: true,
+                                write: false,
+                                unit: '°C'
                             });
-                            await createAliasAsync(config.weatherEntity + '.TEMP_MAX', 'accuweather.' + weatherAdapterInstanceNumber + '.Daily.Day1.Temperature.Maximum', true, <iobJS.StateCommon>{
+                            await createAliasAsync(config.weatherEntity + '.TEMP_MAX', 'pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.0.temperatureHigh', true, <iobJS.StateCommon>{
                                 type: 'number',
                                 role: 'value.temperature.max.forecast.0',
                                 name: 'TEMP_MAX',
+                                read: true,
+                                write: false,
+                                unit: '°C'
                             });
                         } else {
-                            log('weather alias for accuweather.' + weatherAdapterInstanceNumber + '. already exists', 'info');
+                            log('weather alias for pirate-weather.' + weatherAdapterInstanceNumber + '. already exists', 'info');
                         }
                     }
                 } catch (err: any) {
-                    log('error at function CreateWeatherAlias accuweather.' + weatherAdapterInstanceNumber + '.: ' + err.message, 'warn');
+                    log('error at function CreateWeatherAlias pirate-weather.' + weatherAdapterInstanceNumber + '. : ' + err.message, 'warn');
                 }
             }
         }
@@ -9481,9 +9492,9 @@ function HandleScreensaverUpdate(): void {
                 if (weatherAdapterInstance == 'daswetter.' + weatherAdapterInstanceNumber + '.') {
                     entityIcon = Icons.GetIcon(GetDasWetterIcon(parseInt(icon)));
                     entityIconCol = GetDasWetterIconColor(parseInt(icon));
-                } else if (weatherAdapterInstance == 'accuweather.' + weatherAdapterInstanceNumber + '.') {
-                    entityIcon = Icons.GetIcon(GetAccuWeatherIcon(parseInt(icon)));
-                    entityIconCol = GetAccuWeatherIconColor(parseInt(icon));
+                } else if (weatherAdapterInstance == 'pirate-weather.' + weatherAdapterInstanceNumber + '.') {
+                    entityIcon = Icons.GetIcon(GetPirateWeatherIcon(icon.toString()));
+                    entityIconCol = GetPirateWeatherIconColor(icon.toString());
                 }
 
                 payloadString += '~' + '~' + entityIcon + '~' + entityIconCol + '~' + '~' + optionalValue + '~';
@@ -9587,30 +9598,27 @@ function HandleScreensaverUpdate(): void {
                         RegisterScreensaverEntityWatcher('daswetter.' + weatherAdapterInstanceNumber + '.NextDays.Location_1.Day_' + i + '.Maximale_Temperatur_value');
                         RegisterScreensaverEntityWatcher('daswetter.' + weatherAdapterInstanceNumber + '.NextDays.Location_1.Day_' + i + '.Tag_value');
                         RegisterScreensaverEntityWatcher('daswetter.' + weatherAdapterInstanceNumber + '.NextDays.Location_1.Day_' + i + '.Wetter_Symbol_id');
-                    } else if (weatherAdapterInstance == 'accuweather.' + weatherAdapterInstanceNumber + '.') {
-                        if (i < 6) {
-                            //Maximal 5 Tage bei accuweather
-                            TempMin = existsObject('accuweather.' + weatherAdapterInstanceNumber + '.Summary.TempMin_d' + i)
-                                ? getState('accuweather.' + weatherAdapterInstanceNumber + '.Summary.TempMin_d' + i).val
-                                : 0;
-                            TempMax = existsObject('accuweather.' + weatherAdapterInstanceNumber + '.Summary.TempMax_d' + i)
-                                ? getState('accuweather.' + weatherAdapterInstanceNumber + '.Summary.TempMax_d' + i).val
-                                : 0;
-                            DayOfWeek = existsObject('accuweather.' + weatherAdapterInstanceNumber + '.Summary.DayOfWeek_d' + i)
-                                ? getState('accuweather.' + weatherAdapterInstanceNumber + '.Summary.DayOfWeek_d' + i).val
-                                : 0;
-                            WeatherIcon = existsObject('accuweather.' + weatherAdapterInstanceNumber + '.Summary.WeatherIcon_d' + i)
-                                ? GetAccuWeatherIcon(getState('accuweather.' + weatherAdapterInstanceNumber + '.Summary.WeatherIcon_d' + i).val)
-                                : '';
-                            WheatherColor = existsObject('accuweather.' + weatherAdapterInstanceNumber + '.Summary.WeatherIcon_d' + i)
-                                ? GetAccuWeatherIconColor(getState('accuweather.' + weatherAdapterInstanceNumber + '.Summary.WeatherIcon_d' + i).val)
-                                : 0;
+                    } else if (weatherAdapterInstance == 'pirate-weather.' + weatherAdapterInstanceNumber + '.') {
+                        TempMin = existsObject('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.temperatureLow')
+                            ? getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.temperatureLow').val
+                            : 0;
+                        TempMax = existsObject('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.temperatureHigh')
+                            ? getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.temperatureHigh').val
+                            : 0;
+                        DayOfWeek = existsObject('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.time')
+                            ? formatDate(new Date(getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.time').val * 1000), 'dd')
+                            : 0;
+                        WeatherIcon = existsObject('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.icon')
+                            ? GetPirateWeatherIcon(getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.icon').val)
+                            : '';
+                        WheatherColor = existsObject('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.icon')
+                            ? GetPirateWeatherIconColor(getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.icon').val)
+                            : 0;
 
-                            RegisterScreensaverEntityWatcher('accuweather.' + weatherAdapterInstanceNumber + '.Summary.TempMin_d' + i);
-                            RegisterScreensaverEntityWatcher('accuweather.' + weatherAdapterInstanceNumber + '.Summary.TempMax_d' + i);
-                            RegisterScreensaverEntityWatcher('accuweather.' + weatherAdapterInstanceNumber + '.Summary.DayOfWeek_d' + i);
-                            RegisterScreensaverEntityWatcher('accuweather.' + weatherAdapterInstanceNumber + '.Summary.WeatherIcon_d' + i);
-                        }
+                        RegisterScreensaverEntityWatcher('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.temperatureLow');
+                        RegisterScreensaverEntityWatcher('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.temperatureHigh');
+                        RegisterScreensaverEntityWatcher('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.time');
+                        RegisterScreensaverEntityWatcher('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.' + i + '.icon');
                     }
 
                     let tempMinMaxString: string = '';
@@ -9622,14 +9630,13 @@ function HandleScreensaverUpdate(): void {
                         tempMinMaxString = Math.round(TempMin) + '° ' + Math.round(TempMax) + '°';
                     }
 
-                    if (weatherAdapterInstance == 'accuweather.' + weatherAdapterInstanceNumber + '.' && i == 6) {
+                    if (weatherAdapterInstance == 'pirate-weather.' + weatherAdapterInstanceNumber + '.' && i == 6) {
                         let nextSunEvent = 0;
                         let valDateNow = new Date().getTime();
                         let arraySunEvent: number[] = [];
-
-                        arraySunEvent[0] = getDateObject(getState('accuweather.' + weatherAdapterInstanceNumber + '.Daily.Day1.Sunrise').val).getTime();
-                        arraySunEvent[1] = getDateObject(getState('accuweather.' + weatherAdapterInstanceNumber + '.Daily.Day1.Sunset').val).getTime();
-                        arraySunEvent[2] = getDateObject(getState('accuweather.' + weatherAdapterInstanceNumber + '.Daily.Day2.Sunrise').val).getTime();
+                        arraySunEvent[0] = getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.0.sunriseTime').val * 1000;
+                        arraySunEvent[1] = getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.0.sunsetTime').val * 1000;
+                        arraySunEvent[2] = getState('pirate-weather.' + weatherAdapterInstanceNumber + '.weather.daily.1.sunriseTime').val * 1000;
 
                         let j = 0;
                         for (j = 0; j < 3; j++) {
@@ -10135,164 +10142,77 @@ function GetScreenSaverEntityColor(configElement: NSPanel.ScreenSaverElement | n
     return rgb_dec565(White);
 }
 
-function GetAccuWeatherIcon(icon: number): string {
+function GetPirateWeatherIcon(icon: string): string {
     try {
         switch (icon) {
-            case 30: // Hot
-                return 'weather-sunny-alert'; // exceptional
-
-            case 24: // Ice
-            case 31: // Cold
-                return 'snowflake-alert'; // exceptional
-
-            case 7: // Cloudy
-            case 8: // Dreary (Overcast)
-            case 38: // Mostly Cloudy
-                return 'weather-cloudy'; // cloudy
-
-            case 11: // fog
-                return 'weather-fog'; // fog
-
-            case 25: // Sleet
-                return 'weather-hail'; // Hail
-
-            case 15: // T-Storms
-                return 'weather-lightning'; // lightning
-
-            case 16: // Mostly Cloudy w/ T-Storms
-            case 17: // Partly Sunny w/ T-Storms
-            case 41: // Partly Cloudy w/ T-Storms
-            case 42: // Mostly Cloudy w/ T-Storms
-                return 'weather-lightning-rainy'; // lightning-rainy
-
-            case 33: // Clear
-            case 34: // Mostly Clear
-            case 37: // Hazy Moonlight
+            case 'clear-day':
+                return 'weather-sunny';
+            case 'clear-night':
                 return 'weather-night';
-
-            case 3: // Partly Sunny
-            case 4: // Intermittent Clouds
-            case 6: // Mostly Cloudy
-            case 35: // Partly Cloudy
-            case 36: // Intermittent Clouds
-                return 'weather-partly-cloudy'; // partlycloudy
-
-            case 18: // pouring
-                return 'weather-pouring'; // pouring
-
-            case 12: // Showers
-            case 13: // Mostly Cloudy w/ Showers
-            case 14: // Partly Sunny w/ Showers
-            case 26: // Freezing Rain
-            case 39: // Partly Cloudy w/ Showers
-            case 40: // Mostly Cloudy w/ Showers
-                return 'weather-rainy'; // rainy
-
-            case 19: // Flurries
-            case 20: // Mostly Cloudy w/ Flurries
-            case 21: // Partly Sunny w/ Flurries
-            case 22: // Snow
-            case 23: // Mostly Cloudy w/ Snow
-            case 43: // Mostly Cloudy w/ Flurries
-            case 44: // Mostly Cloudy w/ Snow
-                return 'weather-snowy'; // snowy
-
-            case 29: // Rain and Snow
-                return 'weather-snowy-rainy'; // snowy-rainy
-
-            case 1: // Sunny
-            case 2: // Mostly Sunny
-            case 5: // Hazy Sunshine
-                return 'weather-sunny'; // sunny
-
-            case 32: // windy
-                return 'weather-windy'; // windy
-
+            case 'rain':
+                return 'weather-rainy';
+            case 'snow':
+                return 'weather-snowy';
+            case 'sleet':
+                return 'weather-snowy-rainy';
+            case 'wind':
+                return 'weather-windy';
+            case 'fog':
+                return 'weather-fog';
+            case 'cloudy':
+                return 'weather-cloudy';
+            case 'partly-cloudy-day':
+                return 'weather-partly-cloudy';
+            case 'partly-cloudy-night':
+                return 'weather-night-partly-cloudy';
+            case 'hail':
+                return 'weather-hail';
+            case 'thunderstorm':
+                return 'weather-lightning-rainy';
+            case 'tornado':
+                return 'weather-tornado';
             default:
                 return 'alert-circle-outline';
         }
     } catch (err: any) {
-        log('error at function GetAccuWeatherIcon: ' + err.message, 'warn');
+        log('error at function GetPirateWeatherIcon: ' + err.message, 'warn');
     }
     return '';
 }
 
-function GetAccuWeatherIconColor(icon: number): number {
+function GetPirateWeatherIconColor(icon: string): number {
     try {
         switch (icon) {
-            case 24: // Ice
-            case 30: // Hot
-            case 31: // Cold
-                return rgb_dec565(swExceptional); // exceptional
-
-            case 7: // Cloudy
-            case 8: // Dreary (Overcast)
-            case 38: // Mostly Cloudy
-                return rgb_dec565(swCloudy); // cloudy
-
-            case 11: // fog
-                return rgb_dec565(swFog); // fog
-
-            case 25: // Sleet
-                return rgb_dec565(swHail); // Hail
-
-            case 15: // T-Storms
-                return rgb_dec565(swLightning); // lightning
-
-            case 16: // Mostly Cloudy w/ T-Storms
-            case 17: // Partly Sunny w/ T-Storms
-            case 41: // Partly Cloudy w/ T-Storms
-            case 42: // Mostly Cloudy w/ T-Storms
-                return rgb_dec565(swLightningRainy); // lightning-rainy
-
-            case 33: // Clear
-            case 34: // Mostly Clear
-            case 37: // Hazy Moonlight
+            case 'clear-day':
+                return rgb_dec565(swSunny);
+            case 'clear-night':
                 return rgb_dec565(swClearNight);
-
-            case 3: // Partly Sunny
-            case 4: // Intermittent Clouds
-            case 6: // Mostly Cloudy
-            case 35: // Partly Cloudy
-            case 36: // Intermittent Clouds
-                return rgb_dec565(swPartlycloudy); // partlycloudy
-
-            case 18: // pouring
-                return rgb_dec565(swPouring); // pouring
-
-            case 12: // Showers
-            case 13: // Mostly Cloudy w/ Showers
-            case 14: // Partly Sunny w/ Showers
-            case 26: // Freezing Rain
-            case 39: // Partly Cloudy w/ Showers
-            case 40: // Mostly Cloudy w/ Showers
-                return rgb_dec565(swRainy); // rainy
-
-            case 19: // Flurries
-            case 20: // Mostly Cloudy w/ Flurries
-            case 21: // Partly Sunny w/ Flurries
-            case 22: // Snow
-            case 23: // Mostly Cloudy w/ Snow
-            case 43: // Mostly Cloudy w/ Flurries
-            case 44: // Mostly Cloudy w/ Snow
-                return rgb_dec565(swSnowy); // snowy
-
-            case 29: // Rain and Snow
-                return rgb_dec565(swSnowyRainy); // snowy-rainy
-
-            case 1: // Sunny
-            case 2: // Mostly Sunny
-            case 5: // Hazy Sunshine
-                return rgb_dec565(swSunny); // sunny
-
-            case 32: // windy
-                return rgb_dec565(swWindy); // windy
-
+            case 'rain':
+                return rgb_dec565(swRainy);
+            case 'snow':
+                return rgb_dec565(swSnowy);
+            case 'sleet':
+                return rgb_dec565(swSnowyRainy);
+            case 'wind':
+                return rgb_dec565(swWindy);
+            case 'fog':
+                return rgb_dec565(swFog);
+            case 'cloudy':
+                return rgb_dec565(swCloudy);
+            case 'partly-cloudy-day':
+            case 'partly-cloudy-night':
+                return rgb_dec565(swPartlycloudy);
+            case 'hail':
+                return rgb_dec565(swHail);
+            case 'thunderstorm':
+                return rgb_dec565(swLightningRainy);
+            case 'tornado':
+                return rgb_dec565(swExceptional);
             default:
                 return rgb_dec565(White);
         }
     } catch (err: any) {
-        log('error at function GetAccuWeatherIconColor: ' + err.message, 'warn');
+        log('error at function GetPirateWeatherIconColor: ' + err.message, 'warn');
     }
     return 0;
 }
