@@ -1,132 +1,1517 @@
-/**
- * ABW0001-Quittierungslogik (in JavaSkript)
- *
- * Ablauf:
- * 1) Bei erstem Auftreten von ABW0001 wird nach 15 Minuten automatisch quittiert.
- * 2) Tritt ABW0001 innerhalb der folgenden 15 Minuten erneut auf,
- *    bleibt der Heizstab gesperrt bis zur manuellen Quittierung.
- * 3) Meldetext und Log enthalten den Hinweis, dass beim ersten Mal
- *    eine automatische Quittierung versucht wurde.
- */
+/************************************************************
+ * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
+ * Version: 2.8.0  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
+ ************************************************************/
 
-// ==================== KONFIGURATION (Datenpunkte & Zeiten) ====================
-const CFG = {
-    dp: {
-        statusCode: '0_userdata.0.Heizung.PowerToHeat.StatusCode',
-        manualQuitt: '0_userdata.0.Heizung.PowerToHeat.Quittierung',
-        autoQuittCmd: '0_userdata.0.Heizung.PowerToHeat.AutoQuittieren',
-        heizstabFreigabe: '0_userdata.0.Heizung.PowerToHeat.HeizstabFreigabe',
-        meldung: '0_userdata.0.Heizung.PowerToHeat.Meldung',
+/* ==========================================================
+   1) KONFIGURATION – Zeiten, Grenzen, externe DPs
+   ========================================================== */
 
-        // interne/ausgabe DPs (read-only)
-        firstErrorTs: '0_userdata.0.Heizung.PowerToHeat.ABW0001.ErstauftretenTs',
-        autoQuittTried: '0_userdata.0.Heizung.PowerToHeat.ABW0001.AutoQuittVersucht',
-        watchUntilTs: '0_userdata.0.Heizung.PowerToHeat.ABW0001.WatchUntilTs',
-        lockManual: '0_userdata.0.Heizung.PowerToHeat.ABW0001.ManuelleQuittErforderlich'
-    },
-    times: {
-        autoQuittDelayMin: 15,
-        reoccurWindowMin: 15,
-        loopIntervalSec: 5
-    },
-    code: 'ABW0001'
+// --- Zeiten / Intervalle ---
+const TIMES = {
+    regelIntervallSek: 30,     // Hauptregelzyklus
+    ampelBlinkMs: 700,         // Blinkfrequenz LEDs
+    kalibrierPauseMs: 10000,   // Mess-Stabilisierungszeit je Kalibrierschritt
+    selbsttestDauerMs: 10000,  // Dauer der Lastaufbringung im Selbsttest
+    plausiCheckMs: 4000        // zusätzliche Wartezeit nach Rampenende vor Plausibilitätsprüfung
 };
 
-// ==================== DATENPUNKTE ANLEGEN ====================
-createState(CFG.dp.firstErrorTs, 0, { name: 'ABW0001 Erstauftreten (Epoch ms)', type: 'number', role: 'value.time', read: true, write: false });
-createState(CFG.dp.autoQuittTried, false, { name: 'ABW0001 Auto-Quittierung versucht', type: 'boolean', role: 'indicator', read: true, write: false });
-createState(CFG.dp.watchUntilTs, 0, { name: 'ABW0001 Überwachungsfenster bis (Epoch ms)', type: 'number', role: 'value.time', read: true, write: false });
-createState(CFG.dp.lockManual, false, { name: 'ABW0001 manuelle Quittierung erforderlich', type: 'boolean', role: 'indicator.alarm', read: true, write: false });
+// --- Leistungs- / Temperatur-Grenzen & Hysterese ---
+const LIMITS = {
+    maxPowerW: 3500,
+    hystereseW: 100,
+    wwTempMinDefault: 30,
+    wwTempMaxDefault: 75,
+    uebertempInternDefault: 97,
+    uebertempExternDefault: 97
+};
 
-// ==================== HILFSFUNKTIONEN ====================
-function nowMs() {
-    return Date.now();
-}
+// --- Event-getriggerte Regelung (Debounce) ---
+const EVENT = {
+    debounceMs: 3000,      // mindestens 3s Abstand zwischen event-getriggerten Regelaufrufen
+    deltaWTrigger: 150     // nur reagieren, wenn sich Netto-Netzleistung um >=150W ändert
+};
 
-function minutesToMs(min) {
-    return min * 60 * 1000;
-}
+// --- Abweichungslogik (ABW) ---
+const ABW = {
+    toleranzProzent: 20,   // Abschaltgrenze
+    persistMs: 5000,       // Abweichung muss mind. 5s bestehen
+    sampleMs: 1000         // Abtastintervall während Persistenzprüfung
+};
 
-function setMeldung(text) {
-    setState(CFG.dp.meldung, text, true);
-    log(text, 'warn');
-}
+// --- Nachtmodus: Online-Checks deaktivieren ---
+const QUIET = {
+    offlineCheckOffFromHour: 22, // ab 22:00
+    offlineCheckOffToHour: 4     // bis 04:00
+};
 
-function isAbw0001Active() {
-    const state = getState(CFG.dp.statusCode);
-    return !!state && state.val === CFG.code;
-}
+// --- Offline-Persistenz (Geräte müssen länger offline sein, bevor abgeschaltet wird) ---
+const OFFLINE = {
+    persistMs: 15000,   // Offline muss mind. 15s anliegen
+    sampleMs: 1000      // Abtastintervall
+};
 
-function triggerAutoQuittierung() {
-    setState(CFG.dp.autoQuittCmd, true, false);
-}
+// --- FI/LS-Überwachung (Sicherheitsabschaltung) ---
+const FI = {
+    persistMs: 2000,   // FI muss mind. 2s AUS sein, bevor abgeschaltet/gelatcht wird
+    sampleMs: 250
+};
 
-function resetAbwTracking() {
-    setState(CFG.dp.lockManual, false, true);
-    setState(CFG.dp.autoQuittTried, false, true);
-    setState(CFG.dp.firstErrorTs, 0, true);
-    setState(CFG.dp.watchUntilTs, 0, true);
-}
+// --- Sollwerte / Regelparameter (per DP änderbar) ---
+const PARAM = {
+    deltaTRegelbereich_Default: 5,
+    wwZieltemp_Default: 60
+};
 
-function unlockAfterManualQuittierung() {
-    resetAbwTracking();
-    setState(CFG.dp.heizstabFreigabe, true, false);
-    setMeldung('ABW0001 quittiert. Heizstab wieder freigegeben.');
-}
+// --- WW-Sicherstellung: feste Heizleistung ---
+const WW_SICHER = {
+    leistungW: 3450   // Heizleistung für WW-Sicherstellung (hier zentral anpassen)
+};
 
-function handleAbw0001() {
-    if (!isAbw0001Active()) {
-        return;
-    }
+// --- Rampe ---
+const RAMP = {
+    rateWps: 100,     // max 100 W pro Sekunde
+    tickMs: 1000      // Ramptakt
+};
 
-    const tNow = nowMs();
-    const firstTs = getState(CFG.dp.firstErrorTs).val || 0;
-    const autoTried = !!getState(CFG.dp.autoQuittTried).val;
-    const watchUntil = getState(CFG.dp.watchUntilTs).val || 0;
-    const lockManual = !!getState(CFG.dp.lockManual).val;
+// --- Externe DPs (direkt lesen; keine Spiegel) ---
+const EXTERNAL = {
+    ueberschussW: '0_userdata.0.Strom.Netzeinspeisung',                 // + = PV-Überschuss
+    netzverbrauchW: '0_userdata.0.Strom.Netzverbrauch',                 // + = Netzbezug/Import
+    zaehlerRechtsLWT: 'mqtt.0.SmartHome.tasmota_23B0C8.tele.LWT',        // "Online" / "Offline"
+    zaehlerLinksLWT:  'mqtt.0.SmartHome.tasmota_2501E4.tele.LWT',        // "Online" / "Offline"
+    wrDachOnline:     'modbus.1.info.connection',                       // true/false
+    wrFassadeOnline:  'modbus.0.info.connection',                       // true/false
+    tempExternC:  'modbus.2.holdingRegisters.1.1030_Temp_2',
+    tempInternC:  'modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern',
+    deviceOnline: 'modbus.2.info.connection',
+    istLeistungW: 'modbus.2.holdingRegisters.1.1000_Power',             // echte Heizstab-Leistung
+    speicherTempC:'modbus.2.holdingRegisters.1.1030_Temp_2',             // Pufferspeicher-Temperatur (WW-Istwert)
+    fiHeizstabOK: 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.Input0.Status' // true=FI/LS EIN, false=AUS
+};
 
-    if (lockManual) {
-        setState(CFG.dp.heizstabFreigabe, false, false);
-        return;
-    }
+// --- PWM-Ausgabe-DP (0 = AUS, 1–99 = EIN) ---
+const PWM_DP = '0_userdata.0.System.PWM.GPIO12.dutyPercent';
 
-    if (!firstTs) {
-        setState(CFG.dp.firstErrorTs, tNow, true);
-        setMeldung('ABW0001 erkannt. Automatische Quittierung in 15 Minuten geplant.');
-        return;
-    }
+// --- LED-Ausgabe-DPs (GPIO) ---
+const LED_GPIO = {
+    gruen: '0_userdata.0.System.GPIO.GPIO22',
+    gelb:  '0_userdata.0.System.GPIO.GPIO23',
+    rot:   '0_userdata.0.System.GPIO.GPIO24'
+};
 
-    if (!autoTried && tNow - firstTs >= minutesToMs(CFG.times.autoQuittDelayMin)) {
-        triggerAutoQuittierung();
-        setState(CFG.dp.autoQuittTried, true, true);
-        setState(CFG.dp.watchUntilTs, tNow + minutesToMs(CFG.times.reoccurWindowMin), true);
-        setMeldung('ABW0001: Erste automatische Quittierung wurde versucht. Überwache 15 Minuten auf Wiederauftreten.');
-        return;
-    }
 
-    if (autoTried && tNow <= watchUntil) {
-        setState(CFG.dp.lockManual, true, true);
-        setState(CFG.dp.heizstabFreigabe, false, false);
-        setMeldung('ABW0001 innerhalb 15 Minuten erneut aufgetreten. Heizstab bleibt aus bis zur manuellen Quittierung (erste Auto-Quittierung wurde bereits versucht).');
-    }
-}
+/* ==========================================================
+   2) V2-NAMESPACE & DATENPUNKTE – Erstellung (RO/WO)
+   ========================================================== */
 
-// ==================== EVENTS ====================
-on({ id: CFG.dp.statusCode, change: 'ne' }, () => {
-    if (isAbw0001Active()) {
-        handleAbw0001();
+const BASE = '0_userdata.0.Heizstab.V2.';
+
+// --- Helper: State-Erzeugung (TS-safe via extendObject) ---
+function ensureStateRO(id, common) {
+    if (!existsObject(id)) {
+        createState(id, 0, { ...common, read: true, write: false });
     } else {
-        resetAbwTracking();
+        extendObject(id, { common: { read: true, write: false } });
+    }
+}
+function ensureStateRW(id, defVal, common) {
+    if (!existsObject(id)) {
+        createState(id, defVal, { ...common, read: true, write: true });
+    } else {
+        extendObject(id, { common: { read: true, write: true } });
+    }
+}
+function ensureStateBoolRW(id, defVal, name) {
+    ensureStateRW(id, defVal, { name, type: 'boolean', role: 'switch' });
+}
+function ensureStateBoolRO(id, name) {
+    ensureStateRO(id, { name, type: 'boolean', role: 'indicator' });
+}
+function ensureStateNumRW(id, defVal, name, unit = '', min = 0, max = 1000000) {
+    ensureStateRW(id, defVal, { name, type: 'number', role: 'value', unit, min, max });
+}
+function ensureStateNumRO(id, name, unit = '', min = -1000000, max = 1000000) {
+    ensureStateRO(id, { name, type: 'number', role: 'value', unit, min, max });
+}
+function ensureStateStrRW(id, defVal, name) {
+    ensureStateRW(id, defVal, { name, type: 'string', role: 'text' });
+}
+// Button (bool, role=button)
+function ensureStateButton(id, name) {
+    if (!existsObject(id)) {
+        createState(id, false, { name, type: 'boolean', role: 'button', read: true, write: true });
+    } else {
+        extendObject(id, { common: { name, type: 'boolean', role: 'button', read: true, write: true } });
+    }
+}
+
+// --- V2: Steuer- & Status-Datenpunkte ---
+const DP = {
+    // Regelung
+    aktiv:              BASE + 'Regelung.AKTIV',
+    status:             BASE + 'Regelung.Status',
+    log:                BASE + 'Regelung.Log',                 // JSON-Log (neueste oben)
+    nextRunInSek:       BASE + 'Regelung.NextRunIn_Sek',        // Countdown bis zur nächsten Regelberechnung (Sekunden)
+    pwmTargetW:         BASE + 'Regelung.PWM_Target_Watt',      // Zielwert (mit Rampe)
+    pwmWatt:            BASE + 'Regelung.PWM_Watt',             // aktueller Sollwert (gerampt) -> PWM
+    pwmPercent:         BASE + 'Regelung.PWM_Prozent',          // Ausgabe (nur lesen)
+    sollWattRaw:        BASE + 'Regelung.Soll_Watt_Unkalibriert', // Anzeige: Sollleistung vor Kalibrier-Korrektur
+    betriebsmodus:      BASE + 'Regelung.Betriebsmodus',       // Unterstützungsbetrieb | Heizstabbetrieb | Kesselbetrieb
+    regelungEnable:     BASE + 'Regelung.ENABLE',               // (true=Regelung aktiv erlaubt)
+    sperreRegelung:     BASE + 'Regelung.Sperre',               // Kalibrier/Fehler-Sperre
+    resetFail:          BASE + 'Regelung.Fail_Reset',           // BUTTON
+    ackBlink:           BASE + 'Regelung.QuittierTaster_Blink',  // vom Skript geschaltet (Blink-LED/Anzeige)
+
+    // Parameter
+    deltaT:             BASE + 'Parameter.DeltaT_Regelbereich',
+    wwZiel:             BASE + 'Parameter.WW_Zieltemperatur',
+    tempMin:            BASE + 'Parameter.MinTemp',
+    tempMax:            BASE + 'Parameter.MaxTemp',
+    uebertempIntern:    BASE + 'Parameter.Übertemperatur_intern',
+    uebertempExtern:    BASE + 'Parameter.Übertemperatur_extern',
+    wwSicherAn:         BASE + 'Parameter.WW_Sicherstellung_AN',
+
+    // Ampel (interne Anzeige; reale Ausgabe über LED_GPIO)
+    ledGruen:           BASE + 'Ampel.LED_Grün',
+    ledGelb:            BASE + 'Ampel.LED_Gelb',
+    ledRot:             BASE + 'Ampel.LED_Rot',
+    standbyBlinkEnable: BASE + 'Ampel.StandbyBlink_ENABLE',
+
+    // Kalibrierung
+    kalStart:           BASE + 'Kalibrierung.Start',            // BUTTON
+    kalRunning:         BASE + 'Kalibrierung.Läuft',
+    kalDaten:           BASE + 'Kalibrierung.Daten_JSON',
+
+    // PWM-Ansteuerung
+    pwmStatus:          BASE + 'PWM.Status',
+
+    // Selbsttest
+    selfStart:          BASE + 'Selbsttest.Start',              // BUTTON
+    selfFlag:           BASE + 'Selbsttest.Aktiv'
+};
+
+// --- States anlegen ---
+ensureStateBoolRW(DP.regelungEnable, false, 'Regelung manuell erlauben');
+ensureStateBoolRO(DP.aktiv, 'Regelung aktiv');
+ensureStateStrRW(DP.status, 'Initialisiere...', 'Status der Regelung');
+ensureStateStrRW(DP.log, '[]', 'Regelungs-Log als JSON (neueste oben)');
+// Betriebsmodus (Auswahl)
+if (!existsObject(DP.betriebsmodus)) {
+    createState(DP.betriebsmodus, 'Heizstabbetrieb', {
+        name: 'Betriebsmodus',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: true,
+        states: {
+            'Unterstützungsbetrieb': 'Unterstützungsbetrieb',
+            'Heizstabbetrieb': 'Heizstabbetrieb',
+            'Kesselbetrieb': 'Kesselbetrieb'
+        }
+    });
+} else {
+    extendObject(DP.betriebsmodus, {
+        common: {
+            name: 'Betriebsmodus',
+            type: 'string',
+            role: 'text',
+            read: true,
+            write: true,
+            states: {
+                'Unterstützungsbetrieb': 'Unterstützungsbetrieb',
+                'Heizstabbetrieb': 'Heizstabbetrieb',
+                'Kesselbetrieb': 'Kesselbetrieb'
+            }
+        }
+    });
+}
+ensureStateNumRO(DP.nextRunInSek, 'Countdown bis nächste Regelung (RO)', 's', 0, TIMES.regelIntervallSek);
+
+ensureStateNumRW(DP.pwmTargetW, 0, 'PWM Ziel-Leistung (W)', 'W', 0, LIMITS.maxPowerW);
+ensureStateNumRW(DP.pwmWatt, 0, 'PWM Soll-Leistung (gerampt) (W)', 'W', 0, LIMITS.maxPowerW);
+ensureStateNumRO(DP.pwmPercent, 'PWM Prozent (RO)', '%', 0, 100);
+ensureStateNumRO(DP.sollWattRaw, 'Sollleistung unkalibriert (RO)', 'W', 0, LIMITS.maxPowerW);
+
+// Buttons
+ensureStateButton(DP.resetFail, 'Fehler-Reset');          // BUTTON
+ensureStateBoolRO(DP.ackBlink, 'Quittiertaster blinkt (RO)');
+ensureStateButton(DP.kalStart, 'Kalibrierung starten');   // BUTTON
+ensureStateButton(DP.selfStart, 'Selbsttest starten');    // BUTTON
+
+ensureStateBoolRW(DP.sperreRegelung, false, 'Regelung gesperrt (intern/Kalibrierung)');
+
+ensureStateNumRW(DP.deltaT, PARAM.deltaTRegelbereich_Default, 'DeltaT Regelbereich', 'K', 0, 50);
+ensureStateNumRW(DP.wwZiel, PARAM.wwZieltemp_Default, 'WW-Zieltemperatur', '°C', 10, 85);
+ensureStateNumRW(DP.tempMin, LIMITS.wwTempMinDefault, 'Min. WW-Temperatur', '°C', 10, 85);
+ensureStateNumRW(DP.tempMax, LIMITS.wwTempMaxDefault, 'Max. WW-Temperatur', '°C', 10, 90);
+ensureStateNumRW(DP.uebertempIntern, LIMITS.uebertempInternDefault, 'Übertemp.-Grenze intern', '°C', 20, 100);
+ensureStateNumRW(DP.uebertempExtern, LIMITS.uebertempExternDefault, 'Übertemp.-Grenze extern', '°C', 20, 100);
+ensureStateBoolRW(DP.wwSicherAn, false, 'WW-Sicherstellung aktivieren');
+
+// interne Ampel-States (Anzeige)
+ensureStateBoolRW(DP.ledGruen, false, 'LED Grün (intern)');
+ensureStateBoolRW(DP.ledGelb, false, 'LED Gelb (intern)');
+ensureStateBoolRW(DP.ledRot, false, 'LED Rot (intern)');
+ensureStateBoolRW(DP.standbyBlinkEnable, true, 'Standby (Grün) aktiv');
+
+ensureStateStrRW(DP.kalDaten, '{}', 'Kalibrierdaten JSON');
+ensureStateStrRW(DP.pwmStatus, 'n/a', 'PWM Status');
+ensureStateBoolRW(DP.kalRunning, false, 'Kalibrierung läuft');
+ensureStateBoolRW(DP.selfFlag, false, 'Selbsttest aktiv');
+
+// PWM-DP (falls nicht vorhanden, wird er angelegt – 0..99)
+ensureStateNumRW(PWM_DP, 0, 'PWM GPIO12 dutyPercent', '%', 0, 99);
+
+// LED-GPIO-DPs (falls nicht vorhanden, anlegen)
+ensureStateBoolRW(LED_GPIO.gruen, false, 'GPIO22 LED Grün');
+ensureStateBoolRW(LED_GPIO.gelb,  false, 'GPIO23 LED Gelb');
+ensureStateBoolRW(LED_GPIO.rot,   false, 'GPIO24 LED Rot');
+
+
+/* ==========================================================
+   3) HILFSFUNKTIONEN (allgemein)
+   ========================================================== */
+
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+function wait(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+function isOfflineCheckDisabledNow() {
+    const h = new Date().getHours();
+    // Fenster über Mitternacht: z.B. 22..4
+    if (QUIET.offlineCheckOffFromHour > QUIET.offlineCheckOffToHour) {
+        return (h >= QUIET.offlineCheckOffFromHour) || (h < QUIET.offlineCheckOffToHour);
+    }
+    // normales Fenster ohne Mitternacht
+    return (h >= QUIET.offlineCheckOffFromHour) && (h < QUIET.offlineCheckOffToHour);
+}
+
+// Quittierungspflichtige Fehlercodes und Status
+const ACK_CODES = new Set(['TP004', 'ABW001', 'PWM400', 'PWMERR', 'FI001']);
+const ACK_STATUS = {
+    NICHT_QUITTIERBAR: 'NICHT_QUITTIERBAR',
+    QUITTIERBAR: 'QUITTIERBAR',
+    QUITTIERT: 'QUITTIERT'
+};
+
+function _extractAckCode(msg) {
+    const m = String(msg ?? '').match(/\[(TP004|ABW001|PWM400|PWMERR|FI001|BP001)\]/);
+    return m ? m[1] : null;
+}
+
+function _readTempsAndLimits() {
+    const tInt = Number(getState(EXTERNAL.tempInternC)?.val) || 0;
+    const tExt = Number(getState(EXTERNAL.tempExternC)?.val) || 0;
+    const gInt = Number(getState(DP.uebertempIntern)?.val) || LIMITS.uebertempInternDefault;
+    const gExt = Number(getState(DP.uebertempExtern)?.val) || LIMITS.uebertempExternDefault;
+    return { tInt, tExt, gInt, gExt };
+}
+
+function _currentAckStatusFor(code) {
+    if (!code) return null;
+    if (code === 'ABW001') return ACK_STATUS.QUITTIERBAR;
+    if (code === 'TP004') {
+        const { tInt, tExt, gInt, gExt } = _readTempsAndLimits();
+        const over = (tInt >= gInt) || (tExt >= gExt);
+        return over ? ACK_STATUS.NICHT_QUITTIERBAR : ACK_STATUS.QUITTIERBAR;
+    }
+    if (code === 'FI001') {
+    const fi = (getState(EXTERNAL.fiHeizstabOK)?.val === true);
+    return fi ? ACK_STATUS.QUITTIERBAR : ACK_STATUS.NICHT_QUITTIERBAR;
+}
+    if (code === 'PWM400' || code === 'PWMERR') {
+        return _pwmFaultActive ? ACK_STATUS.NICHT_QUITTIERBAR : ACK_STATUS.QUITTIERT;
+    }
+    if (code === 'BP001') {
+        // Bypass-Status der Speicherladepumpe (informativ, nicht quittierpflichtig)
+        const bypassOn = (getState('shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch')?.val === true);
+        return bypassOn ? 'AKTIV' : 'INAKTIV';
+    }
+    return null;
+}
+
+let _pendingLogEntries = [];
+
+function _readLogArray() {
+    const curr = String(getState(DP.log)?.val ?? '[]').trim();
+    if (!curr) return [];
+    try {
+        const parsed = JSON.parse(curr);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function _writeLogArray(arr) {
+    const limited = (Array.isArray(arr) ? arr : []).slice(0, 200);
+    setState(DP.log, JSON.stringify(limited), true);
+}
+
+function _flushPendingLog() {
+    if (!existsObject(DP.log)) return;
+    if (_pendingLogEntries.length === 0) return;
+
+    const existing = _readLogArray();
+    const combined = [..._pendingLogEntries, ...existing].slice(0, 200);
+    _writeLogArray(combined);
+    _pendingLogEntries = [];
+}
+
+function updateLogAckStatus(code, status) {
+    if (!code || !status) return;
+    if (!existsObject(DP.log)) return;
+
+    const arr = _readLogArray();
+    for (let i = 0; i < arr.length; i++) {
+        const e = arr[i] || {};
+        if (e.FehlerCode === code) {
+            arr[i] = {
+    ...e,
+    Zeitstempel: String(e.Zeitstempel ?? ''),
+    Meldung: String(e.Meldung ?? ''),
+    FehlerCode: String(code ?? ''),
+    FehlerStatus: String(status ?? '')
+};
+            _writeLogArray(arr);
+            return;
+        }
+    }
+}
+
+function appendLog(message) {
+    const d = new Date();
+const ts =
+    d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0') + ' ' +
+    String(d.getHours()).padStart(2, '0') + ':' +
+    String(d.getMinutes()).padStart(2, '0') + ':' +
+    String(d.getSeconds()).padStart(2, '0');
+
+    let msgOneLine = String(message ?? '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const ackCode = _extractAckCode(msgOneLine);
+
+    // Token entfernen -> Fehlercode steht nur in FehlerCode
+    if (ackCode) {
+        const token = `[${ackCode}]`;
+        msgOneLine = msgOneLine.replace(token, '').replace(/\s+/g, ' ').trim();
+    }
+
+    const entry = {
+        Zeitstempel: ts,
+        Meldung: msgOneLine,
+        FehlerCode: ackCode ? String(ackCode) : '',
+        FehlerStatus: ackCode ? String(_currentAckStatusFor(ackCode) ?? '') : ''
+    };
+
+    if (!existsObject(DP.log)) {
+        _pendingLogEntries = [entry, ..._pendingLogEntries].slice(0, 200);
+        return;
+    }
+
+    const arr = _readLogArray();
+    const next = [entry, ...arr].slice(0, 200);
+    _writeLogArray(next);
+}
+
+function calcPlausibilityDelay(targetWatt) {
+    const curr = Number(getState(DP.pwmWatt)?.val) || 0;
+    const diff = Math.abs(targetWatt - curr);
+    const rampMs = (diff / RAMP.rateWps) * 1000;
+    return rampMs + TIMES.plausiCheckMs;
+}
+
+function prozentAbweichung(soll, ist) {
+    if (soll === 0) return 0;
+    return Math.abs(((ist - soll) / soll) * 100);
+}
+
+// MQTT LWT interpretieren
+function _isLWTOnline(val) {
+    const s = String(val ?? '').trim().toLowerCase();
+    return s === 'online' || s === 'on' || s === 'true' || s === '1';
+}
+
+// Prüft alle relevanten Geräte auf "offline" und gibt Liste zurück
+function getOfflineDevices() {
+    const offline = [];
+
+    const lwtRechts = getState(EXTERNAL.zaehlerRechtsLWT)?.val;
+    const lwtLinks  = getState(EXTERNAL.zaehlerLinksLWT)?.val;
+    if (!_isLWTOnline(lwtRechts)) offline.push('Zähler rechts');
+    if (!_isLWTOnline(lwtLinks))  offline.push('Zähler links');
+
+    const wrDach = getState(EXTERNAL.wrDachOnline)?.val === true;
+    const wrFas  = getState(EXTERNAL.wrFassadeOnline)?.val === true;
+    if (!wrDach) offline.push('Wechselrichter Dach');
+    if (!wrFas)  offline.push('Wechselrichter Fassade');
+
+    return offline;
+}
+
+function _offlineKey(list) {
+    return (Array.isArray(list) ? list : []).slice().sort().join('|');
+}
+
+// ABW-Persistenzprüfung: Abweichung muss über eine Dauer konstant > Schwelle bleiben
+async function abweichungPersistiert(sollW, tokenRef) {
+    const start = Date.now();
+    while (Date.now() - start < ABW.persistMs) {
+        if (tokenRef !== _targetToken) return false;
+
+        const istW = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
+        const abw = prozentAbweichung(sollW, istW);
+
+        if (abw <= ABW.toleranzProzent) return false;
+
+        await wait(ABW.sampleMs);
+    }
+    return true;
+}
+
+// Kalibrierung: Watt (Soll) → PWM-Watt (aus Kennlinie)
+function kalibrierteLeistung(sollWatt) {
+    const json = (getState(DP.kalDaten)?.val || '{}');
+    let daten;
+    try { daten = JSON.parse(json); } catch (e) { daten = {}; }
+    const keys = Object.keys(daten).map(k => parseInt(k, 10)).sort((a, b) => a - b);
+    if (!keys.length) return Math.round(sollWatt);
+
+    for (let i = 0; i < keys.length - 1; i++) {
+        const x0 = keys[i], x1 = keys[i + 1];
+        const y0 = Number(daten[x0]), y1 = Number(daten[x1]);
+        if (sollWatt >= y0 && sollWatt <= y1 && (y1 - y0) !== 0) {
+            const pwm = x0 + ((sollWatt - y0) * (x1 - x0)) / (y1 - y0);
+            return Math.round(pwm);
+        }
+    }
+    return Math.round(sollWatt);
+}
+
+// Event-Trigger
+let _eventTimer = null;
+function requestRegelzyklusByEvent(reason) {
+    const now = Date.now();
+    if (now - _lastEventRegelTs < EVENT.debounceMs) return;
+
+    const einspeisungW = Number(getState(EXTERNAL.ueberschussW)?.val) || 0;
+    const netzverbrauchW = Number(getState(EXTERNAL.netzverbrauchW)?.val) || 0;
+    const netzNettoW = einspeisungW - netzverbrauchW;
+
+    if (_lastNetzNettoW !== null && Math.abs(netzNettoW - _lastNetzNettoW) < EVENT.deltaWTrigger) return;
+    _lastNetzNettoW = netzNettoW;
+
+    _lastEventRegelTs = now;
+
+    if (_eventTimer) clearTimeout(_eventTimer);
+    _eventTimer = setTimeout(() => {
+        log(`[Regelung] Event-Trigger (${reason}): netzNetto=${netzNettoW}W`, 'info');
+        regelzyklus();
+    }, 0);
+}
+
+
+/* ==========================================================
+   4) PWM-ANSTEUERUNG & RAMPE (Ausgabe über dutyPercent 0/1–99)
+   ========================================================== */
+
+// Umrechnung 0–max → 0–99% (0=aus, 1..99=ein; 100 ist verboten)
+function _rawToPercent(rawW) {
+    const w = clamp(rawW, 0, LIMITS.maxPowerW);
+    if (w <= 0) return 0;
+
+    let percent = Math.round((w / LIMITS.maxPowerW) * 100);
+    percent = clamp(percent, 1, 99);
+    return percent;
+}
+
+function _deviceOnline() {
+    try { return getState(EXTERNAL.deviceOnline)?.val === true; } catch { return false; }
+}
+
+function _setPWMPercentHW(percent) {
+    const online = _deviceOnline();
+    if (!online) {
+        log('[PWM] Gerät offline – keine Ausgabe', 'warn');
+        setState(DP.pwmStatus, 'Gerät offline – PWM deaktiviert (400)', true);
+
+        setState(PWM_DP, 0, true);
+        setState(DP.pwmPercent, 0, true);
+        return;
+    }
+
+    const p = clamp(Math.round(percent), 0, 99);
+
+    setState(PWM_DP, p, true);
+
+    setState(DP.pwmStatus, `PWM: ${p}%`, true);
+    setState(DP.pwmPercent, p, true);
+}
+
+// Hardware-Ausgabe bei Änderung des gerampten Sollwerts
+on({ id: DP.pwmWatt, change: 'ne' }, (obj) => {
+    const w = Number(obj.state.val) || 0;
+    const percent = _rawToPercent(w);
+    _setPWMPercentHW(percent);
+});
+
+// Sofort-Setzen (ohne Rampe) für Notfälle/Kalibrierung
+function setPWM_Immediate(watt) {
+    const w = clamp(Math.round(watt), 0, LIMITS.maxPowerW);
+    setState(DP.pwmTargetW, w, true);
+    _targetToken++;
+    setState(DP.pwmWatt, w, true);
+}
+
+// Zielwert setzen (mit Rampe)
+function setPWM_TargetWatt(watt) {
+    const w = clamp(Math.round(watt), 0, LIMITS.maxPowerW);
+    setState(DP.pwmTargetW, w, true);
+    _targetToken++;
+}
+
+// Ramper – fährt PWM_Watt mit max 100 W/s zum Target
+let _lastRampTs = Date.now();
+setInterval(() => {
+    const now = Date.now();
+    const dt = Math.max(0.001, (now - _lastRampTs) / 1000);
+    _lastRampTs = now;
+
+    const curr = Number(getState(DP.pwmWatt)?.val) || 0;
+    const target = Number(getState(DP.pwmTargetW)?.val) || 0;
+    if (curr === target) return;
+
+    const maxStep = RAMP.rateWps * dt;
+    let next = curr;
+    if (target > curr) next = Math.min(curr + maxStep, target);
+    else               next = Math.max(curr - maxStep, target);
+
+    setState(DP.pwmWatt, Math.round(next), true);
+}, RAMP.tickMs);
+
+// Gerät Online/Offline → PWM 0 erzwingen / Wiederanlauf
+on({ id: EXTERNAL.deviceOnline, change: 'ne' }, (obj) => {
+    const online = obj.state.val === true;
+    if (!online) {
+        setState(PWM_DP, 0, true);
+        setState(DP.pwmPercent, 0, true);
+        setState(DP.pwmStatus, 'Gerät offline – PWM deaktiviert (400)', true);
+    } else {
+        const w = Number(getState(DP.pwmWatt)?.val) || 0;
+        const percent = _rawToPercent(w);
+        _setPWMPercentHW(percent);
     }
 });
 
-on({ id: CFG.dp.manualQuitt, val: true }, () => {
-    unlockAfterManualQuittierung();
-    setState(CFG.dp.manualQuitt, false, true);
+
+/* ==========================================================
+   5) AMPEL-STEUERUNG (LEDs abhängig vom Regelstatus)
+   ========================================================== */
+
+let _ampelBlinkTimer = null;
+let _lastAutoLoggedStatus = '';
+
+// LED setzen: interne Anzeige + externe GPIO-DPs
+function _led(dp, val) {
+    const v = !!val;
+
+    setState(dp, v, true);
+
+    if (dp === DP.ledGruen) setState(LED_GPIO.gruen, v, true);
+    if (dp === DP.ledGelb)  setState(LED_GPIO.gelb,  v, true);
+    if (dp === DP.ledRot)   setState(LED_GPIO.rot,   v, true);
+}
+
+function _ampelReset() {
+    _led(DP.ledGruen, false);
+    _led(DP.ledGelb, false);
+    _led(DP.ledRot, false);
+    if (_ampelBlinkTimer) { clearInterval(_ampelBlinkTimer); _ampelBlinkTimer = null; }
+}
+function _ampelBlink(...dps) {
+    let state = false;
+    if (_ampelBlinkTimer) clearInterval(_ampelBlinkTimer);
+    _ampelBlinkTimer = setInterval(() => {
+        state = !state; dps.forEach(dp => _led(dp, state));
+    }, TIMES.ampelBlinkMs);
+}
+
+function updateAmpel() {
+    const status = String(getState(DP.status)?.val || '');
+
+    // Auto-Log für ST/KL/TP-Statuscodes
+    if (status !== _lastAutoLoggedStatus && /\[(ST|KL|TP)\d{3}\]/.test(status)) {
+        appendLog(status);
+        _lastAutoLoggedStatus = status;
+    }
+
+    const leistung = Number(getState(DP.pwmWatt)?.val || 0);
+
+    // Soll-Zustand berechnen, ohne sofort zu schalten (verhindert Flackern)
+    let wantGreen = false;
+    let wantYellow = false;
+    let wantRed = false;
+    let wantBlink = false;
+
+    if (_pwmFaultActive) {
+        wantRed = true;
+    } else if (status.includes('[TP002]') || status.includes('[TP001]') || status.includes('Übertemperatur')) {
+        wantRed = true;
+    } else if (status.includes('[ABW001]') || status.includes('[FI001]')) {
+    wantRed = true;
+} else if (status.includes('[TP003]')) {
+        wantGreen = true;
+        wantYellow = true;
+    } else if (status.includes('[RG003]') && leistung > 0) {
+        wantYellow = true;
+    } else if (status.includes('[RG001]')) {
+        // Regelung manuell deaktiviert -> alle LEDs AUS
+        wantGreen = false;
+        wantYellow = false;
+        wantRed = false;
+    } else if (status.includes('[RG004]')) {
+        // Standby (nur wenn erlaubt)
+        wantGreen = (getState(DP.standbyBlinkEnable)?.val === true);
+    } else if (status.includes('[ST001]')) {
+        wantBlink = true;
+    }
+
+    // Blink-Fall
+    if (wantBlink) {
+        _ampelBlink(DP.ledGruen, DP.ledGelb, DP.ledRot);
+        return;
+    }
+
+    // Kein Blink-Fall → evtl. alten Blinktimer stoppen
+    if (_ampelBlinkTimer) {
+        clearInterval(_ampelBlinkTimer);
+        _ampelBlinkTimer = null;
+    }
+
+    // Nur schalten, wenn sich der Zustand ändert
+    if (getState(DP.ledGruen)?.val !== wantGreen) _led(DP.ledGruen, wantGreen);
+    if (getState(DP.ledGelb)?.val !== wantYellow) _led(DP.ledGelb, wantYellow);
+    if (getState(DP.ledRot)?.val !== wantRed) _led(DP.ledRot, wantRed);
+
+    return;
+}
+
+/* ---- Quittiertaster-Blinken (eigener DP) ---- */
+let _ackBlinkTimer = null;
+let _ackBlinkOverride = false;
+
+function _setAckBlink(val) {
+    setState(DP.ackBlink, !!val, true);
+}
+
+function stopAckBlink() {
+    if (_ackBlinkTimer) {
+        clearInterval(_ackBlinkTimer);
+        _ackBlinkTimer = null;
+    }
+    _setAckBlink(false);
+}
+
+function startAckBlinkSlow() {
+    if (_ackBlinkOverride) return;
+    if (_ackBlinkTimer) return;
+
+    let state = false;
+    _ackBlinkTimer = setInterval(() => {
+        state = !state;
+        _setAckBlink(state);
+    }, 700);
+}
+
+function flashAckBlink(times = 3, periodMs = 200) {
+    if (_ackBlinkTimer) {
+        clearInterval(_ackBlinkTimer);
+        _ackBlinkTimer = null;
+    }
+    _ackBlinkOverride = true;
+    _setAckBlink(false);
+
+    let toggles = times * 2;
+    let state = false;
+
+    const t = setInterval(() => {
+        state = !state;
+        _setAckBlink(state);
+        toggles -= 1;
+
+        if (toggles <= 0) {
+            clearInterval(t);
+            _ackBlinkOverride = false;
+            _setAckBlink(false);
+            updateAckBlink();
+        }
+    }, periodMs);
+}
+
+/* ==========================================================
+   5a) MULTI-FEHLER-STATUS (robust)
+   ========================================================== */
+
+// Aktive quittierungspflichtige Fehler (TP004/ABW001) + nicht manuelle (PWM400/PWMERR)
+// Map: code -> { status, sinceTs }
+const _activeFaults = new Map();
+
+function setFaultActive(code, status) {
+    if (!code || !status) return;
+    const prev = _activeFaults.get(code);
+    if (!prev) {
+        _activeFaults.set(code, { status, sinceTs: Date.now() });
+    } else {
+        _activeFaults.set(code, { ...prev, status });
+    }
+    updateLogAckStatus(code, status);
+}
+
+function clearFault(code) {
+    if (!code) return;
+    if (_activeFaults.has(code)) {
+        _activeFaults.delete(code);
+    }
+    // Log-Eintrag (falls vorhanden) als quittiert markieren
+    updateLogAckStatus(code, ACK_STATUS.QUITTIERT);
+}
+
+function hasNonQuittierbarFault() {
+    for (const [, v] of _activeFaults.entries()) {
+        if (v?.status === ACK_STATUS.NICHT_QUITTIERBAR) return true;
+    }
+    return false;
+}
+
+function hasQuittierbarFault() {
+    for (const [, v] of _activeFaults.entries()) {
+        if (v?.status === ACK_STATUS.QUITTIERBAR) return true;
+    }
+    return false;
+}
+
+// dynamische Status-Updates (z.B. TP004 wird quittierbar sobald Temperatur ok)
+function refreshDynamicFaultStatuses() {
+    if (_activeFaults.has('TP004')) {
+        setFaultActive('TP004', _currentAckStatusFor('TP004'));
+    }
+    if (_activeFaults.has('PWM400')) {
+        setFaultActive('PWM400', _currentAckStatusFor('PWM400'));
+    }
+    if (_activeFaults.has('FI001')) {
+    setFaultActive('FI001', _currentAckStatusFor('FI001'));
+}
+    if (_activeFaults.has('PWMERR')) {
+        setFaultActive('PWMERR', _currentAckStatusFor('PWMERR'));
+    }
+}
+
+function updateAckBlink() {
+    if (_ackBlinkOverride) return;
+
+    refreshDynamicFaultStatuses();
+
+    // Blink nur wenn es mind. einen quittierbaren Fehler gibt und KEIN nicht-quittierbarer parallel aktiv ist
+    if (hasQuittierbarFault() && !hasNonQuittierbarFault()) {
+        startAckBlinkSlow();
+    } else {
+        stopAckBlink();
+    }
+}
+
+// Status-Reaktion
+on({ id: DP.status, change: 'any' }, () => updateAmpel());
+on({ id: DP.standbyBlinkEnable, change: 'ne' }, () => updateAmpel());
+
+
+/* ==========================================================
+   6) KALIBRIERUNG (Watt-Ist vs. Soll → Kennlinie)
+   ========================================================== */
+
+const KAL = {
+    maxPower: LIMITS.maxPowerW,
+    schritt: 100
+};
+
+let _kalBlinkTimer = null;
+function _kalBlink(start) {
+    if (start) {
+        let z = false;
+        _kalBlinkTimer = setInterval(() => {
+            z = !z; _led(DP.ledGruen, z); _led(DP.ledGelb, z); _led(DP.ledRot, z);
+        }, TIMES.ampelBlinkMs);
+    } else {
+        if (_kalBlinkTimer) clearInterval(_kalBlinkTimer);
+        _kalBlinkTimer = null;
+        _led(DP.ledGruen, false); _led(DP.ledGelb, false); _led(DP.ledRot, false);
+    }
+}
+
+async function runKalibrierung() {
+    log('[Kalibrierung] Start', 'info');
+    setState(DP.sperreRegelung, true, true);
+    setState(DP.kalRunning, true, true);
+    setState(DP.status, 'Kalibrierung aktiv [KL001]', true);
+    _kalBlink(true);
+
+    const daten = {};
+    for (let p = 0; p <= KAL.maxPower; p += KAL.schritt) {
+        setPWM_Immediate(p);
+        await wait(TIMES.kalibrierPauseMs);
+        const ist = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
+        daten[p] = ist;
+        log(`[Kalibrierung] Soll ${p} W → Ist ${ist} W`, 'info');
+    }
+
+    setPWM_Immediate(0);
+    setState(DP.kalDaten, JSON.stringify(daten), true);
+    setState(DP.status, 'Kalibrierung abgeschlossen [KL002]', true);
+    log('[Kalibrierung] Fertig', 'info');
+
+    _kalBlink(false);
+    setState(DP.kalRunning, false, true);
+    setState(DP.sperreRegelung, false, true);
+    regelzyklus();
+}
+
+// Trigger
+on({ id: DP.kalStart, change: 'ne' }, async (obj) => {
+    if (obj.state?.val === true) {
+        setState(DP.kalStart, false, true);
+        await runKalibrierung();
+    }
 });
 
-const interval = setInterval(handleAbw0001, CFG.times.loopIntervalSec * 1000);
 
-onStop(() => {
-    clearInterval(interval);
-}, 200);
+/* ==========================================================
+   7) SELBSTTEST
+   ========================================================== */
+
+const SELF = {
+    leistung: 500,
+    toleranzProzent: 10
+};
+
+async function runSelbsttest() {
+    setState(DP.sperreRegelung, true, true);
+    log('[Selbsttest] Start', 'info');
+    setState(DP.status, 'Selbsttest aktiv [ST001]', true);
+    setState(DP.selfFlag, true, true);
+
+    const te = Number(getState(EXTERNAL.tempExternC)?.val) || 0;
+    const ti = Number(getState(EXTERNAL.tempInternC)?.val) || 0;
+    if (te < 10 || te > 80 || ti < 10 || ti > 80) {
+        setState(DP.status, 'Temperatursensorfehler [TP001]', true);
+        log('[Selbsttest] Abbruch – Sensorfehler [TP001]', 'warn');
+        setPWM_Immediate(0);
+        setState(DP.selfFlag, false, true);
+        setState(DP.sperreRegelung, false, true);
+        regelzyklus();
+        return;
+    }
+
+    setPWM_TargetWatt(SELF.leistung);
+    await wait(TIMES.selbsttestDauerMs);
+
+    const ist = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
+    const abw = prozentAbweichung(SELF.leistung, ist);
+
+    if (abw > SELF.toleranzProzent) {
+        log(`[Selbsttest] FAIL: Soll=${SELF.leistung}W Ist=${ist}W Abw=${abw.toFixed(1)}%`, 'warn');
+        setState(DP.status, 'Selbsttest fehlgeschlagen [ST002]', true);
+    } else {
+        log(`[Selbsttest] OK: Ist=${ist}W Abw=${abw.toFixed(1)}%`, 'info');
+        setState(DP.status, 'Selbsttest erfolgreich [ST003]', true);
+    }
+
+    setPWM_TargetWatt(0);
+    setState(DP.selfFlag, false, true);
+    setState(DP.sperreRegelung, false, true);
+    regelzyklus();
+}
+
+on({ id: DP.selfStart, change: 'ne' }, async (obj) => {
+    if (obj.state?.val === true) {
+        setState(DP.selfStart, false, true);
+        if (getState(DP.selfFlag)?.val === true || getState(DP.kalRunning)?.val === true) {
+            setState(DP.status, 'Selbsttest nicht möglich – bereits aktiv oder Kalibrierung läuft. [ST010]', true);
+            return;
+        }
+        await runSelbsttest();
+    }
+});
+
+// Reset-Taster: nur quittieren wenn quittierbar UND kein nicht-quittierbarer parallel
+on({ id: DP.resetFail, change: 'ne' }, (obj) => {
+    if (obj.state?.val === true) {
+        setState(DP.resetFail, false, true);
+
+        updateAckBlink();
+        if (hasQuittierbarFault() && !hasNonQuittierbarFault()) {
+            _ackRequested = true;
+            regelzyklus();
+        } else {
+            flashAckBlink(3, 200);
+        }
+    }
+});
+
+// Betriebsmodus-Auswertung
+on({ id: DP.betriebsmodus, change: 'ne' }, (obj) => {
+    const mode = String(obj.state?.val || '').trim();
+
+    // Bei Kesselbetrieb: Heizstab-Regelung sicher deaktivieren
+    if (mode === 'Kesselbetrieb') {
+        if (getState(DP.regelungEnable)?.val === true) {
+            setState(DP.regelungEnable, false, true);
+        }
+        setState(DP.status, 'Betriebsmodus: Kesselbetrieb – Heizstab deaktiviert. [MODE001]', true);
+        appendLog('Betriebsmodus auf Kesselbetrieb gesetzt – Heizstab deaktiviert. [MODE001]');
+
+        // sofort in sicheren Zustand
+        setPWM_TargetWatt(0);
+        setState(DP.sollWattRaw, 0, true);
+        setState(DP.aktiv, false, true);
+        updateAmpel();
+        return;
+    }
+
+    // Unterstützungsbetrieb / Heizstabbetrieb: Heizstab-Regelung wieder erlauben
+    if (getState(DP.regelungEnable)?.val !== true) {
+        setState(DP.regelungEnable, true, true);
+    }
+
+    let modeCode = 'MODE000';
+    if (mode === 'Unterstützungsbetrieb') modeCode = 'MODE010';
+    if (mode === 'Heizstabbetrieb') modeCode = 'MODE020';
+
+    setState(DP.status, `Betriebsmodus: ${mode}. [${modeCode}]`, true);
+    appendLog(`Betriebsmodus geändert: ${mode}. [${modeCode}]`);
+    regelzyklus();
+});
+
+on({ id: DP.regelungEnable, change: 'ne' }, () => {
+    regelzyklus();
+});
+
+on({ id: DP.wwSicherAn, change: 'ne' }, (obj) => {
+    const enabled = (obj.state?.val === true);
+    if (!enabled) {
+        _wwRunning = false;
+        appendLog('WW-Sicherstellung wurde ausgeschaltet');
+    } else {
+        appendLog('WW-Sicherstellung wurde eingeschaltet');
+    }
+    regelzyklus();
+});
+
+
+/* ==========================================================
+   8) HAUPTREGELUNG
+   ========================================================== */
+
+let _wwRunning = false; // Hysterese-Flag für WW-Sicherstellung
+let _nextRunTs = Date.now() + (TIMES.regelIntervallSek * 1000);
+let _lastEventRegelTs = 0;
+let _lastNetzNettoW = null;
+
+let _sperreAktiv = false;
+let _pvRunning = false;
+
+let _regelzyklusRunning = false;
+let _targetToken = 0;
+let _ackRequested = false;
+
+let _connFault = false;
+let _offlineSinceTs = null;
+let _offlineLastList = '';
+
+let _pwmFaultActive = false;
+let _maxTempLatched = false; // Max-Temp erreicht -> erst wieder freigeben wenn Temp unter (Max - DeltaT) fällt
+let _maxTempMsgSent = false; // verhindert wiederholte TP002-Statusmeldungen während der Sperre
+
+let _fiOffSinceTs = null;
+let _fiFaultLatched = false; // FI-Fehler wurde ausgelöst und wartet auf Quittierung
+
+async function regelzyklus() {
+    if (_regelzyklusRunning) return;
+    _regelzyklusRunning = true;
+
+    _nextRunTs = Date.now() + (TIMES.regelIntervallSek * 1000);
+    setState(DP.nextRunInSek, TIMES.regelIntervallSek, true);
+
+    // Betriebsmodus: Kesselbetrieb blockiert Heizstab-Regelung
+    const modeNow = String(getState(DP.betriebsmodus)?.val || 'Heizstabbetrieb').trim();
+    if (modeNow === 'Kesselbetrieb') {
+        setPWM_TargetWatt(0);
+        setState(DP.sollWattRaw, 0, true);
+        setState(DP.aktiv, false, true);
+        // ENABLE sicher ausschalten
+        if (getState(DP.regelungEnable)?.val === true) {
+            setState(DP.regelungEnable, false, true);
+        }
+        // Status nicht bei jedem Zyklus neu überschreiben, nur wenn abweichend
+        const st = String(getState(DP.status)?.val || '');
+        if (!st.includes('Kesselbetrieb')) {
+            setState(DP.status, 'Betriebsmodus: Kesselbetrieb – Heizstab deaktiviert. [MODE001]', true);
+        }
+        updateAmpel();
+        _regelzyklusRunning = false;
+        return;
+    }
+// FI/LS-Überwachung (harte Abschaltung, quittierpflichtig)
+const fiOK = (getState(EXTERNAL.fiHeizstabOK)?.val === true);
+
+if (!fiOK) {
+    // Entprellen: muss FI.persistMs am Stück AUS sein
+    if (_fiOffSinceTs === null) _fiOffSinceTs = Date.now();
+    const elapsed = Date.now() - _fiOffSinceTs;
+
+    if (elapsed >= FI.persistMs) {
+        _fiFaultLatched = true;
+        setFaultActive('FI001', ACK_STATUS.NICHT_QUITTIERBAR);
+
+        setPWM_Immediate(0);
+        setState(DP.sollWattRaw, 0, true);
+        setState(DP.aktiv, false, true);
+        _sperreAktiv = true;
+
+        const msg = 'FI/LS ist AUS – Heizstab abgeschaltet. [FI001]';
+        const st = String(getState(DP.status)?.val || '');
+        if (!st.includes('[FI001]')) {
+            setState(DP.status, msg, true);
+            appendLog(msg);
+        }
+
+        updateAmpel();
+        updateAckBlink();
+        _regelzyklusRunning = false;
+        return;
+    } else {
+        const waitSec = Math.ceil((FI.persistMs - elapsed) / 1000);
+        setState(DP.status, `FI/LS AUS erkannt – warte ${waitSec}s. [FI010]`, true);
+        _regelzyklusRunning = false;
+        return;
+    }
+} else {
+    _fiOffSinceTs = null;
+
+    // Wenn FI-Fehler zuvor ausgelöst wurde: jetzt quittierbar (bis Reset)
+    if (_fiFaultLatched) {
+        setFaultActive('FI001', ACK_STATUS.QUITTIERBAR);
+        updateAckBlink();
+    }
+}
+
+    try {
+        // Online-Checks (nachts aus)
+        if (isOfflineCheckDisabledNow()) {
+            if (_connFault || _offlineSinceTs !== null) {
+                _connFault = false;
+                _offlineSinceTs = null;
+                _offlineLastList = '';
+                setState(DP.status, 'Nachtmodus: Online-Checks pausiert (22–04). Regelung freigegeben. [OFF090]', true);
+                appendLog('OFF090: Nachtmodus – Online-Checks pausiert (22–04), Regelung freigegeben');
+            }
+        } else {
+            const offline = getOfflineDevices();
+            if (offline.length > 0) {
+                const key = _offlineKey(offline);
+
+                if (_offlineSinceTs === null || _offlineLastList !== key) {
+                    _offlineSinceTs = Date.now();
+                    _offlineLastList = key;
+                    setState(DP.status, `Gerät offline (warte ${Math.round(OFFLINE.persistMs/1000)}s): ${offline.join(', ')}. [OFF010]`, true);
+                    appendLog(`OFF010: Offline erkannt – Wartezeit startet: ${offline.join(', ')}`);
+                    return;
+                }
+
+                const elapsed = Date.now() - _offlineSinceTs;
+                if (elapsed < OFFLINE.persistMs) {
+                    setState(DP.status, `Gerät offline (warte ${Math.ceil((OFFLINE.persistMs - elapsed)/1000)}s): ${offline.join(', ')}. [OFF010]`, true);
+                    return;
+                }
+
+                _connFault = true;
+                setPWM_Immediate(0);
+                setState(DP.sollWattRaw, 0, true);
+                setState(DP.aktiv, false, true);
+                setState(DP.status, `Gerät offline: ${offline.join(', ')}. Heizstab aus. [OFF001]`, true);
+                appendLog(`OFF001: Abschaltung wegen Offline: ${offline.join(', ')}`);
+                return;
+            } else {
+                _offlineSinceTs = null;
+                _offlineLastList = '';
+            }
+
+            if (_connFault) {
+                _connFault = false;
+                setState(DP.status, 'Alle Geräte wieder online. Regelung freigegeben. [OFF000]', true);
+                appendLog('OFF000: Alle Geräte wieder online – Regelung freigegeben');
+            }
+        }
+
+        // Übertemperatur hart prüfen
+        const tInt = Number(getState(EXTERNAL.tempInternC)?.val) || 0;
+        const tExt = Number(getState(EXTERNAL.tempExternC)?.val) || 0;
+        const gInt = Number(getState(DP.uebertempIntern)?.val) || LIMITS.uebertempInternDefault;
+        const gExt = Number(getState(DP.uebertempExtern)?.val) || LIMITS.uebertempExternDefault;
+
+        if (tInt >= gInt || tExt >= gExt) {
+            const triggers = [];
+            if (tInt >= gInt) triggers.push(`intern ${tInt.toFixed(1)}°C ≥ ${gInt.toFixed(1)}°C`);
+            if (tExt >= gExt) triggers.push(`extern ${tExt.toFixed(1)}°C ≥ ${gExt.toFixed(1)}°C`);
+            const trigText = triggers.length ? triggers.join(' | ') : `intern ${tInt.toFixed(1)}°C / extern ${tExt.toFixed(1)}°C`;
+
+            const msg = `Übertemperatur erkannt (${trigText}) – Abschaltung. [TP004]`;
+            setState(DP.status, msg, true);
+
+            setFaultActive('TP004', ACK_STATUS.NICHT_QUITTIERBAR);
+
+            setPWM_Immediate(0);
+            setState(DP.sollWattRaw, 0, true);
+            setState(DP.aktiv, false, true);
+
+            _sperreAktiv = true;
+            updateAckBlink();
+            return;
+        }
+
+        // Sperre quittieren?
+        if (_sperreAktiv) {
+            refreshDynamicFaultStatuses();
+            updateAckBlink();
+
+            if (_ackRequested) {
+                _ackRequested = false;
+
+                refreshDynamicFaultStatuses();
+                if (hasNonQuittierbarFault() || !hasQuittierbarFault()) {
+                    setState(DP.status, 'Quittierung nicht möglich – kein quittierbarer Fehler vorhanden oder nicht quittierbar.', true);
+                    updateAckBlink();
+                    return;
+                }
+
+                // alle quittierbaren Fehler löschen
+                for (const [code, v] of Array.from(_activeFaults.entries())) {
+                    if (v?.status === ACK_STATUS.QUITTIERBAR) {
+                        clearFault(code);
+                    }
+                }
+                
+                // FI-Latch zurücksetzen, wenn FI001 quittiert wurde
+if (!_activeFaults.has('FI001')) {
+    _fiFaultLatched = false;
+}
+
+                // Sperre nur aufheben, wenn keine aktiven Fehler mehr vorhanden sind
+                if (_activeFaults.size === 0) {
+                    _sperreAktiv = false;
+                    log('[Heizstab] Sperre aufgehoben durch Quittierung.', 'info');
+                }
+                updateAckBlink();
+            } else {
+                return;
+            }
+        }
+
+        // Sperre wegen Kalibrierung/Selbsttest?
+        if (getState(DP.sperreRegelung)?.val === true) {
+            const kal = getState(DP.kalRunning)?.val === true;
+            setState(DP.status, kal ? 'Regelung pausiert (Kalibrierung aktiv).' : 'Regelung gesperrt.', true);
+            setState(DP.aktiv, false, true);
+            if (!kal) {
+                setPWM_TargetWatt(0);
+                setState(DP.sollWattRaw, 0, true);
+            }
+            return;
+        }
+
+        // Manuelle Freigabe?
+        if (getState(DP.regelungEnable)?.val !== true) {
+            setState(DP.status, 'Regelung manuell deaktiviert. [RG001]', true);
+            setState(DP.aktiv, false, true);
+            setPWM_TargetWatt(0);
+            setState(DP.sollWattRaw, 0, true);
+            return;
+        }
+
+        // Sensor-/Parameter-Werte
+        const einspeisungW = Number(getState(EXTERNAL.ueberschussW)?.val) || 0;
+        const netzverbrauchW = Number(getState(EXTERNAL.netzverbrauchW)?.val) || 0;
+        const istHeiz = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
+
+        const netzNettoW = einspeisungW - netzverbrauchW;
+
+        // verfügbarer Überschuss (stabiler): Netto + aktuelle Heizleistung
+        const ueberschuss = netzNettoW + istHeiz;
+
+        const tempExt = Number(getState(EXTERNAL.tempExternC)?.val) || 0;
+        const speicherTemp = Number(getState(EXTERNAL.speicherTempC)?.val) || 0;
+        const tempMin = Number(getState(DP.tempMin)?.val) || LIMITS.wwTempMinDefault;
+        const tempMax = Number(getState(DP.tempMax)?.val) || LIMITS.wwTempMaxDefault;
+        const deltaT = Number(getState(DP.deltaT)?.val) || PARAM.deltaTRegelbereich_Default;
+        const zielTemp = Number(getState(DP.wwZiel)?.val) || PARAM.wwZieltemp_Default;
+        const wwAktiv = getState(DP.wwSicherAn)?.val === true;
+
+        // Max-Temp (gilt immer) – mit Hysterese über DeltaT_Regelbereich
+        // Wenn einmal >= tempMax erreicht: erst wieder freigeben, wenn tempExt <= (tempMax - deltaT)
+        const maxTempRelease = tempMax - Math.max(0, deltaT);
+
+        if (!_maxTempLatched && tempExt >= tempMax) {
+            _maxTempLatched = true;
+            _maxTempMsgSent = false; // neuer Sperrzyklus
+        }
+
+        if (_maxTempLatched) {
+            // Freigabe erst unterhalb der Hysterese
+            if (tempExt <= maxTempRelease) {
+                _maxTempLatched = false;
+                _maxTempMsgSent = false;
+                appendLog(`TP002: Max-Temp-Hysterese freigegeben – Temperatur ${tempExt}°C <= ${maxTempRelease.toFixed(1)}°C`);
+            } else {
+                if (!_maxTempMsgSent) {
+                    setState(
+                        DP.status,
+                        `Maximaltemperatur erreicht – Warte bis <= ${maxTempRelease.toFixed(1)}°C (aktuell ${tempExt}°C). [TP002]`,
+                        true
+                    );
+                    _maxTempMsgSent = true;
+                }
+                setPWM_TargetWatt(0);
+                setState(DP.sollWattRaw, 0, true);
+                setState(DP.aktiv, false, true);
+                return;
+            }
+        }
+
+        // WW-Sicherstellung (Hysterese)
+        if (wwAktiv) {
+            // AUS: Ziel erreicht
+            if (_wwRunning && speicherTemp >= zielTemp) {
+                setPWM_TargetWatt(0);
+                setState(DP.sollWattRaw, 0, true);
+                setState(DP.aktiv, false, true);
+                setState(DP.status, `WW Zieltemperatur ${zielTemp}°C erreicht – Heizstab aus. [TP003]`, true);
+                _wwRunning = false;
+                return;
+            }
+
+            // Wenn läuft und Ziel noch nicht erreicht: weiter heizen
+            if (_wwRunning && speicherTemp < zielTemp) {
+                const sollWattRaw = WW_SICHER.leistungW;
+                setState(DP.sollWattRaw, sollWattRaw, true);
+                const leistung = kalibrierteLeistung(sollWattRaw);
+                setPWM_TargetWatt(leistung);
+                setState(DP.aktiv, true, true);
+                setState(DP.status, 'WW Sicherstellung aktiv. [TP003]', true);
+                return;
+            }
+
+            // EIN: <= Ziel-DeltaT oder <= MinTemp
+            const wwOn = (!_wwRunning) && (speicherTemp <= (zielTemp - deltaT) || speicherTemp <= tempMin);
+            if (wwOn) {
+                const sollWattRaw = WW_SICHER.leistungW;
+                setState(DP.sollWattRaw, sollWattRaw, true);
+                const leistung = kalibrierteLeistung(sollWattRaw);
+
+                setPWM_TargetWatt(leistung);
+                setState(DP.aktiv, true, true);
+                setState(DP.status, 'WW Sicherstellung aktiv. [TP003]', true);
+                _wwRunning = true;
+
+                const tokenWW = _targetToken;
+                await wait(calcPlausibilityDelay(leistung));
+                if (tokenWW !== _targetToken) return;
+
+                const sollWW = Number(getState(DP.pwmWatt)?.val) || 0;
+                if (sollWW > 0) {
+                    const abwPersist = await abweichungPersistiert(sollWW, tokenWW);
+                    if (abwPersist) {
+                        setState(DP.status, 'Abweichung erkannt. Heizstab gesperrt. [ABW001]', true);
+                        appendLog(`Abweichung > Toleranz – Heizstab gesperrt. [ABW001]`);
+
+                        setFaultActive('ABW001', ACK_STATUS.QUITTIERBAR);
+
+                        const istWW = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
+                        const abwWW = prozentAbweichung(sollWW, istWW);
+                        log(`[Heizstab] Abweichung >${ABW.toleranzProzent}% (>=${ABW.persistMs}ms): Soll=${sollWW}W Ist=${istWW}W Abw=${abwWW.toFixed(1)}%`, 'warn');
+
+                        setPWM_Immediate(0);
+                        setState(DP.sollWattRaw, 0, true);
+                        setState(DP.aktiv, false, true);
+                        _sperreAktiv = true;
+                        _wwRunning = false;
+                        updateAckBlink();
+                    }
+                }
+                return;
+            }
+
+            // innerhalb Hysterese: aus
+            setPWM_TargetWatt(0);
+            setState(DP.sollWattRaw, 0, true);
+            setState(DP.aktiv, false, true);
+            setState(DP.status, `WW Sicherstellung: Warte (EIN bei ≤ ${(zielTemp - deltaT).toFixed(1)}°C). [TP003]`, true);
+            return;
+        }
+
+        // PV-Überschussbetrieb
+        const pvOnSchwelle = 500 + LIMITS.hystereseW;
+        const pvOffSchwelle = 500 - LIMITS.hystereseW;
+
+        const pvOK = _pvRunning ? (ueberschuss > pvOffSchwelle) : (ueberschuss > pvOnSchwelle);
+
+        if (pvOK) {
+            let sollWattRaw = clamp(ueberschuss - LIMITS.hystereseW, 0, LIMITS.maxPowerW);
+            setState(DP.sollWattRaw, Math.round(sollWattRaw), true);
+
+            const pwm = kalibrierteLeistung(sollWattRaw);
+            setPWM_TargetWatt(pwm);
+            setState(DP.aktiv, true, true);
+            setState(DP.status, 'Regelung aktiv. [RG003]', true);
+            _pvRunning = true;
+
+            const tokenPV = _targetToken;
+            await wait(calcPlausibilityDelay(pwm));
+            if (tokenPV !== _targetToken) return;
+
+            const sollPV = Number(getState(DP.pwmWatt)?.val) || 0;
+            if (sollPV > 0) {
+                const abwPersist = await abweichungPersistiert(sollPV, tokenPV);
+                if (abwPersist) {
+                    setState(DP.status, 'Abweichung erkannt. Heizstab gesperrt. [ABW001]', true);
+                    appendLog(`Abweichung > Toleranz – Heizstab gesperrt. [ABW001]`);
+
+                    setFaultActive('ABW001', ACK_STATUS.QUITTIERBAR);
+
+                    const istPV = Number(getState(EXTERNAL.istLeistungW)?.val) || 0;
+                    const abwPV = prozentAbweichung(sollPV, istPV);
+                    log(`[Heizstab] Abweichung >${ABW.toleranzProzent}% (>=${ABW.persistMs}ms): Soll=${sollPV}W Ist=${istPV}W Abw=${abwPV.toFixed(1)}%`, 'warn');
+
+                    setPWM_Immediate(0);
+                    setState(DP.sollWattRaw, 0, true);
+                    setState(DP.aktiv, false, true);
+                    _sperreAktiv = true;
+                    updateAckBlink();
+                }
+            }
+        } else {
+            setPWM_TargetWatt(0);
+            _pvRunning = false;
+            setState(DP.sollWattRaw, 0, true);
+            setState(DP.status, 'Überschuss zu gering. Heizstab aus. [RG004]', true);
+            setState(DP.aktiv, false, true);
+        }
+    } finally {
+        _regelzyklusRunning = false;
+    }
+}
+
+
+/* ==========================================================
+   4a) PWM-Status überwachen: Fehler ins JSON-Log + rote LED + Fault-Set
+   ========================================================== */
+
+on({ id: DP.pwmStatus, change: 'ne' }, (obj) => {
+    const msg = String(obj.state?.val || '').trim();
+    if (!msg) return;
+
+    const isFault = msg.toLowerCase().includes('offline') || msg.toLowerCase().includes('fehler') || msg.includes('(400)');
+
+    if (isFault) {
+        const code = (msg.includes('(400)') || msg.toLowerCase().includes('offline')) ? 'PWM400' : 'PWMERR';
+
+        if (!_pwmFaultActive) {
+            _pwmFaultActive = true;
+            appendLog(`PWM: ${msg} [${code}]`);
+        }
+
+        // in Fault-Set abbilden
+        setFaultActive(code, ACK_STATUS.NICHT_QUITTIERBAR);
+
+        updateAmpel();
+        updateAckBlink();
+        return;
+    }
+
+    // kein Fault mehr -> auto quittieren
+    if (_pwmFaultActive) {
+        _pwmFaultActive = false;
+
+        clearFault('PWM400');
+        clearFault('PWMERR');
+
+        updateAmpel();
+        updateAckBlink();
+    }
+});
+
+
+/* ==========================================================
+   8a) Trigger / Scheduler
+   ========================================================== */
+
+// Event-getriggerte Regelung bei Netzänderungen (mit Debounce)
+on({ id: EXTERNAL.ueberschussW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzeinspeisung'));
+on({ id: EXTERNAL.netzverbrauchW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzverbrauch'));
+on({ id: EXTERNAL.fiHeizstabOK, change: 'ne' }, () => regelzyklus());
+
+// Event-getriggerte Regelung bei Geräte-Online-Statusänderungen
+on({ id: EXTERNAL.zaehlerRechtsLWT, change: 'ne' }, () => regelzyklus());
+on({ id: EXTERNAL.zaehlerLinksLWT,  change: 'ne' }, () => regelzyklus());
+on({ id: EXTERNAL.wrDachOnline,     change: 'ne' }, () => regelzyklus());
+on({ id: EXTERNAL.wrFassadeOnline,  change: 'ne' }, () => regelzyklus());
+
+setInterval(regelzyklus, TIMES.regelIntervallSek * 1000);
+
+// Countdown aktualisieren (jede Sekunde)
+setInterval(() => {
+    const now = Date.now();
+    const sec = Math.max(0, Math.ceil((_nextRunTs - now) / 1000));
+    setState(DP.nextRunInSek, sec, true);
+}, 1000);
+
+// Überbrückung Speicherladepumpe: Log mit Status-Spalte (AKTIV / INAKTIV)
+on({ id: 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch', change: 'ne' }, (obj) => {
+    const onBypass = (obj.state && obj.state.val === true);
+
+    if (onBypass) {
+        // Neue Log-Meldung bei jeder Aktivierung
+        appendLog('Überbrückung der Speicherladepumpe aktiviert – Fernabschaltung nicht möglich, Ansteuerung erfolgt direkt vom Kessel. [BP001]');
+        updateLogAckStatus('BP001', 'AKTIV');
+    } else {
+        // Status in der bestehenden Log-Meldung auf INAKTIV setzen
+        updateLogAckStatus('BP001', 'INAKTIV');
+    }
+});
+
+/* ==========================================================
+   9) INITIALISIERUNG
+   ========================================================== */
+
+setState(DP.aktiv, false, true);
+setState(DP.ackBlink, false, true);
+setState(DP.status, 'Initialisierung abgeschlossen. Warte auf PV-Überschuss. [SYS000]', true);
+appendLog('SYS000: Initialisierung abgeschlossen');
+setTimeout(_flushPendingLog, 1000);
+
+setPWM_Immediate(0);
+setState(DP.pwmTargetW, 0, true);
+
+// Countdown initial setzen
+_nextRunTs = Date.now() + (TIMES.regelIntervallSek * 1000);
+setState(DP.nextRunInSek, TIMES.regelIntervallSek, true);
+
+// Baseline für Event-Trigger setzen
+_lastNetzNettoW = (Number(getState(EXTERNAL.ueberschussW)?.val) || 0) - (Number(getState(EXTERNAL.netzverbrauchW)?.val) || 0);
+
+// Initiale Ampel/Quittieranzeige
+updateAmpel();
+updateAckBlink();
