@@ -1,14 +1,17 @@
-/**
- * WW-Pumpe Steuerung für ioBroker
- * Schaltet die Pumpe (Shelly) für eine vorgegebene Laufzeit oder manuell.
- * Alle Datenpunkte werden unter 0_userdata.0.Heizung.WW-Pumpe angelegt.
- */
+/** WW-Pumpe Steuerung für ioBroker
+* Schaltet die Pumpe (Shelly) für eine vorgegebene Laufzeit oder manuell.
+* Alle Datenpunkte werden unter 0_userdata.0.Heizung.WW-Pumpe angelegt.
+*/
+
+const exec = require('child_process').exec;
 
 // ===== KONFIGURATION =====
 const BASE = '0_userdata.0.Heizung.WW-Pumpe.';
 
-const SHELLY_SWITCH = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.Relay0.Switch';
-const SHELLY_ONLINE = 'shelly.1.shellyplusplugs#e465b8b75fdc#1.online';
+const SHELLY_SWITCH = 'alias.0.Heizung.WW-Pumpe.SET';
+const SHELLY_ONLINE = 'alias.0.Heizung.WW-Pumpe.ONLINE';
+const SHELLY_BUTTON = 'shelly.1.ble.38:39:8f:98:06:9f.button_1';
+const RESTART_CMD = 'iobroker restart energiefluss-erweitert.2';
 
 const DEFAULT_DURATION_MIN = 30;           // Standardlaufzeit bei Neuerstellung
 const COUNTDOWN_INTERVAL_MS = 1000;        // Auflösung Restlaufzeit
@@ -37,11 +40,11 @@ function startTimer(minutes) {
     if (getState(DP.manual).val !== 'auto') return;
     if (!getState(SHELLY_ONLINE).val) {
         log('WW-Pumpe: Shelly offline, Start abgebrochen');
+        setState(DP.status, 'Offline', true);
         return;
     }
     remainingSec = Math.round(minutes * 60);
     setState(SHELLY_SWITCH, true);
-    setState(DP.status, 'L\u00e4uft mit Restzeit', true);
     updateRemaining();
     if (countdown) clearInterval(countdown);
     countdown = setInterval(() => {
@@ -51,12 +54,15 @@ function startTimer(minutes) {
 }
 
 function updateRemaining() {
-    setState(DP.remaining, Math.max(0, remainingSec) / 60);
+    const remainingMin = Math.ceil(Math.max(0, remainingSec) / 60);
+    setState(DP.remaining, remainingMin, true);
     if (remainingSec <= 0) {
         stopTimer();
-        setState(SHELLY_SWITCH, false);
+        turnOffPump();
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
+    } else {
+        setState(DP.status, 'EIN: ' + remainingMin, true);
     }
 }
 
@@ -68,11 +74,31 @@ function stopTimer() {
     remainingSec = 0;
 }
 
+function turnOffPump() {
+    const wasOn = getState(SHELLY_SWITCH).val;
+    setState(SHELLY_SWITCH, false);
+    if (wasOn) exec(RESTART_CMD);
+}
+
 // ===== EVENTS =====
 on({id: DP.start, val: true}, obj => {
     const minutes = parseFloat(getState(DP.duration).val) || 0;
     startTimer(minutes);
-    setState(DP.start, false, true); // Button zur\u00fccksetzen
+    setState(DP.start, false, true); // Button zurücksetzen
+});
+
+on({id: SHELLY_BUTTON, change: 'any'}, obj => {
+    if (obj.state.val === 1 && obj.state.ack) {
+        const minutes = parseFloat(getState(DP.duration).val) || 0;
+        startTimer(minutes);
+    }
+});
+
+on({id: SHELLY_BUTTON, change: 'ne'}, obj => {
+    if (obj.state.val) {
+        const minutes = parseFloat(getState(DP.duration).val) || 0;
+        startTimer(minutes);
+    }
 });
 
 on({id: DP.manual, change: 'ne'}, obj => {
@@ -84,17 +110,17 @@ on({id: DP.manual, change: 'ne'}, obj => {
             setState(DP.status, 'Manuell AN', true);
             setState(DP.remaining, 99, true);
         } else {
-            log('WW-Pumpe: Shelly offline, Manuell AN nicht m\u00f6glich');
+            log('WW-Pumpe: Shelly offline, Manuell AN nicht möglich');
+            setState(DP.status, 'Offline', true);
             setState(DP.manual, 'auto', true);
-            setState(DP.status, 'Bereit', true);
             setState(DP.remaining, getState(DP.duration).val, true);
         }
     } else if (mode === 'off') {
-        setState(SHELLY_SWITCH, false);
+        turnOffPump();
         setState(DP.status, 'Manuell AUS', true);
         setState(DP.remaining, 0, true);
     } else {
-        setState(SHELLY_SWITCH, false);
+        turnOffPump();
         setState(DP.status, 'Bereit', true);
         setState(DP.remaining, getState(DP.duration).val, true);
     }
@@ -103,6 +129,19 @@ on({id: DP.manual, change: 'ne'}, obj => {
 on({id: DP.duration, change: 'ne'}, obj => {
     if (getState(DP.manual).val === 'auto' && !countdown) {
         setState(DP.remaining, obj.state.val, true);
+    }
+});
+
+// Shelly Online-Status überwachen
+on({id: SHELLY_ONLINE, change: 'ne'}, obj => {
+    if (!obj.state.val) {
+        setState(DP.status, 'Offline', true);
+    } else {
+        // Nur zurück auf "Bereit" setzen, wenn nicht gerade Timer läuft oder manuell AN
+        if (!countdown && getState(DP.manual).val === 'auto') {
+            setState(DP.status, 'Bereit', true);
+            setState(DP.remaining, getState(DP.duration).val, true);
+        }
     }
 });
 
@@ -117,17 +156,21 @@ if (initMode === 'on') {
         setState(DP.remaining, 99, true);
     } else {
         setState(DP.manual, 'auto', true);
-        setState(DP.status, 'Bereit', true);
+        setState(DP.status, 'Offline', true);
         setState(DP.remaining, getState(DP.duration).val, true);
     }
 } else if (initMode === 'off') {
-    setState(SHELLY_SWITCH, false);
+    turnOffPump();
     setState(DP.status, 'Manuell AUS', true);
     setState(DP.remaining, 0, true);
 } else {
-    setState(SHELLY_SWITCH, false);
-    setState(DP.status, 'Bereit', true);
-    setState(DP.remaining, getState(DP.duration).val, true);
+    if (!getState(SHELLY_ONLINE).val) {
+        setState(DP.status, 'Offline', true);
+    } else {
+        turnOffPump();
+        setState(DP.status, 'Bereit', true);
+        setState(DP.remaining, getState(DP.duration).val, true);
+    }
 }
 
 onStop(() => {
