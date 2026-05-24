@@ -1,0 +1,373 @@
+/**
+ * Speicherladepumpe Steuerung - ioBroker
+ * inkl. Debounce + GPIO-Test bei Scriptstart
+ */
+
+// =======================
+// Datenpunkte
+// =======================
+const DP_MODE         = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
+// Soll/Freigabe aus Kessel/Logik (Unterstützungsbetrieb)
+const DP_SHELLY_INPUT = 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.Input1.Status';
+// Ist-Rückmeldung (Schütz): hängt direkt am Schütz
+const DP_SHELLY_IST   = 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.Input3.Status'; // Ist-Zustand der Pumpe
+
+const DP_SHELLY_ONLINE = 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.online';
+
+const DP_PUMP_ERROR    = '0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline'; // boolean
+
+const DP_WW_ACTUAL    = 'alias.0.Heizung.Speicher_Warmwasser.ACTUAL';
+const DP_PUFFER_TEMP  = 'modbus.2.holdingRegisters.1.1030_Temp_2'; // Pufferspeicher-Temperatur
+
+const DP_GPIO17       = '0_userdata.0.System.GPIO.GPIO17';
+const DP_GPIO18       = '0_userdata.0.System.GPIO.GPIO18';
+
+const DP_PUMP_STATE   = '0_userdata.0.Heizung.Speicherladepumpe.Status';
+const DP_PUMP_MANUAL_MODE = '0_userdata.0.Heizung.Speicherladepumpe.ManualMode'; // string: "AUTO" | "ON" | "OFF"
+
+const DP_PUMP_BYPASS  = 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch'; // boolean: Schlüssel-Schalter, Pumpe wird vom Kessel angesteuert
+
+const DP_PUMP_IST     = '0_userdata.0.Heizung.Speicherladepumpe.Ist'; // boolean: rückgemeldeter Pumpenzustand (Schütz)
+const DP_PUMP_SOLL_IST_FEHLER = '0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler'; // boolean: Soll/Ist Abweichung (nur wenn nicht überbrückt)
+
+// =======================
+// Parameter
+// =======================
+const ON_BELOW_TEMP   = 51;
+const OFF_ABOVE_TEMP  = 55;
+const MAX_OVER_TEMP_ON  = 60; // Sicherheitsabschaltung EIN ab dieser Temperatur
+const MAX_OVER_TEMP_OFF = 58; // Sicherheitsfreigabe erst unter dieser Temperatur
+
+const DEBOUNCE_SHELLY_MS = 1000;
+const DEBOUNCE_IST_MS     = 500;  // Entprellung Ist-Rückmeldung
+const DEBOUNCE_TEMP_MS   = 10000;
+const GPIO_TEST_DELAY_MS = 500;
+const IST_INVERT          = false; // auf true setzen, falls der Kontakt logisch invertiert ist (z.B. NC)
+
+const SHELLY_OFFLINE_TIMEOUT_MS = 10000;
+
+// =======================
+// Interne Zustände
+// =======================
+let pumpIsOn = null;
+let shellyTimer = null;
+let tempTimer   = null;
+let istTimer    = null;
+
+let shellyOfflineTimer = null;
+let shellyOfflineFaultActive = false;
+let overTempActive = false;
+
+// =======================
+// Pumpensteuerung
+// =======================
+function setPump(on) {
+    if (pumpIsOn === on) return;
+
+    if (on) {
+        setState(DP_GPIO17, true,  true);
+        setState(DP_GPIO18, false, true);
+        pumpIsOn = true;
+        setState(DP_PUMP_STATE, true, true);
+        log('[Pumpe] EIN', 'info');
+        updateSollIst('setPump');
+    } else {
+        setState(DP_GPIO17, false, true);
+        setState(DP_GPIO18, true,  true);
+        pumpIsOn = false;
+        setState(DP_PUMP_STATE, false, true);
+        log('[Pumpe] AUS', 'info');
+        updateSollIst('setPump');
+    }
+}
+
+function getMode() {
+    return String(getState(DP_MODE)?.val ?? '');
+}
+
+function isBypassActive() {
+    return !!getState(DP_PUMP_BYPASS)?.val;
+}
+
+function readPumpIst() {
+    const raw = !!getState(DP_SHELLY_IST)?.val;
+    return IST_INVERT ? !raw : raw;
+}
+
+function updateSollIst(reason = '') {
+    const bypass = isBypassActive();
+    const ist = readPumpIst();
+
+    // Ist-Zustand immer publizieren
+    setState(DP_PUMP_IST, ist, true);
+
+    // Solange Überbrückung aktiv ist, keine Soll/Ist-Abweichung werten
+    if (bypass) {
+        setState(DP_PUMP_SOLL_IST_FEHLER, false, true);
+        return;
+    }
+
+    // Nur prüfen, wenn wir schon mindestens einmal einen Soll-Zustand gesetzt haben
+    if (pumpIsOn === null) {
+        setState(DP_PUMP_SOLL_IST_FEHLER, false, true);
+        return;
+    }
+
+    const mismatch = (ist !== pumpIsOn);
+    setState(DP_PUMP_SOLL_IST_FEHLER, mismatch, true);
+
+    if (mismatch) {
+        const r = reason ? ` (${reason})` : '';
+        log(`[Pumpe] Soll/Ist-Abweichung${r}: SOLL=${pumpIsOn ? 'EIN' : 'AUS'} / IST=${ist ? 'EIN' : 'AUS'} (DP=${DP_SHELLY_IST}, invert=${IST_INVERT})`, 'warn');
+    }
+}
+
+// =======================
+// Logik
+// =======================
+function evaluate() {
+    // Absolute Sicherheitsabschaltung mit Hysterese (auch bei Manual ON)
+    const tSafety = Number(getState(DP_WW_ACTUAL)?.val);
+    if (!isNaN(tSafety)) {
+        if (!overTempActive && tSafety >= MAX_OVER_TEMP_ON) {
+            overTempActive = true;
+        } else if (overTempActive && tSafety <= MAX_OVER_TEMP_OFF) {
+            overTempActive = false;
+        }
+    }
+
+    if (overTempActive) {
+        setPump(false);
+        return;
+    }
+
+    // Schlüssel-Überbrückung: Pumpe wird extern (Kessel) angesteuert.
+    // Skript setzt dann seinen Soll-Zustand auf AUS (GPIO sicher) und bewertet keine Soll/Ist-Abweichung.
+    if (isBypassActive()) {
+        setPump(false);
+        updateSollIst('bypass');
+        return;
+    }
+
+    const manualMode = String(getState(DP_PUMP_MANUAL_MODE)?.val ?? 'AUTO').toUpperCase();
+
+    // Manueller Modus hat Vorrang vor Automatik
+    if (manualMode === 'ON') {
+        setPump(true);
+        return;
+    }
+    if (manualMode === 'OFF') {
+        setPump(false);
+        return;
+    }
+    // manualMode === 'AUTO' -> weiter mit Automatik
+
+    // Sicherheits-/Störfall: Shelly länger offline -> Fehler setzen und (nur im AUTO) Pumpe erzwingen AUS
+    if (shellyOfflineFaultActive) {
+        setState(DP_PUMP_ERROR, true, true);
+        setPump(false);
+        return;
+    }
+
+    const mode = getMode();
+
+    if (mode === 'Kesselbetrieb') {
+        // Im Kesselbetrieb wie im Unterstützungsbetrieb: externe Freigabe vom Kessel/Logik durchreichen
+        setPump(!!getState(DP_SHELLY_INPUT)?.val);
+        return;
+    }
+
+    if (mode === 'Unterstützungsbetrieb') {
+        setPump(!!getState(DP_SHELLY_INPUT)?.val);
+        return;
+    }
+
+    if (mode === 'Heizstabbetrieb') {
+        const tWw = Number(getState(DP_WW_ACTUAL)?.val);
+        const tPuffer = Number(getState(DP_PUFFER_TEMP)?.val);
+        if (isNaN(tWw) || isNaN(tPuffer)) return;
+
+        // Ausschalten weiterhin nur temperaturgeführt (Hysterese)
+        if (tWw > OFF_ABOVE_TEMP) {
+            setPump(false);
+            return;
+        }
+
+        // Einschalten nur, wenn WW kalt genug ist UND der Puffer tatsächlich wärmer ist als der WW-Speicher
+        if (tWw < ON_BELOW_TEMP) {
+            if (tPuffer > tWw) {
+                setPump(true);
+            } else {
+                setPump(false);
+            }
+            return;
+        }
+
+        // Zwischen ON_BELOW_TEMP und OFF_ABOVE_TEMP: Zustand beibehalten
+        return;
+    }
+
+    setPump(false);
+    updateSollIst('evaluate');
+}
+
+// =======================
+// Trigger
+// =======================
+on({ id: DP_MODE, change: 'ne' }, evaluate);
+
+on({ id: DP_SHELLY_INPUT, change: 'ne' }, () => {
+    if (shellyTimer) clearTimeout(shellyTimer);
+    shellyTimer = setTimeout(evaluate, DEBOUNCE_SHELLY_MS);
+});
+
+on({ id: DP_SHELLY_IST, change: 'ne' }, () => {
+    if (istTimer) clearTimeout(istTimer);
+    istTimer = setTimeout(() => updateSollIst('istChange'), DEBOUNCE_IST_MS);
+});
+
+on({ id: DP_SHELLY_ONLINE, change: 'ne' }, obj => {
+    const online = !!obj.state.val;
+
+    if (online) {
+        // wieder online: Fehler zurücksetzen und Timer stoppen
+        if (shellyOfflineTimer) clearTimeout(shellyOfflineTimer);
+        shellyOfflineTimer = null;
+        shellyOfflineFaultActive = false;
+        setState(DP_PUMP_ERROR, false, true);
+        evaluate();
+        return;
+    }
+
+    // offline: erst nach Timeout als Fehler werten
+    if (shellyOfflineTimer) clearTimeout(shellyOfflineTimer);
+    shellyOfflineTimer = setTimeout(() => {
+        // nur aktivieren, wenn immer noch offline
+        const curOnline = !!getState(DP_SHELLY_ONLINE)?.val;
+        if (!curOnline) {
+            shellyOfflineFaultActive = true;
+            setState(DP_PUMP_ERROR, true, true);
+            evaluate(); // bewertet unter Berücksichtigung von ManualMode
+        }
+    }, SHELLY_OFFLINE_TIMEOUT_MS);
+});
+
+on({ id: DP_WW_ACTUAL, change: 'ne' }, () => {
+    if (tempTimer) clearTimeout(tempTimer);
+    tempTimer = setTimeout(evaluate, DEBOUNCE_TEMP_MS);
+});
+
+on({ id: DP_PUMP_MANUAL_MODE, change: 'ne' }, () => {
+    evaluate();
+});
+
+on({ id: DP_PUMP_BYPASS, change: 'ne' }, () => {
+    evaluate();
+});
+
+// =======================
+// GPIO-Test bei Start
+// =======================
+function toggleGPIO(dp, cb) {
+    const orig = !!getState(dp)?.val;
+    setState(dp, !orig, true);
+    setTimeout(() => {
+        setState(dp, orig, true);
+        cb && cb();
+    }, GPIO_TEST_DELAY_MS);
+}
+
+function startupGpioTest() {
+    toggleGPIO(DP_GPIO17, () => {
+        toggleGPIO(DP_GPIO18, () => {
+            evaluate();
+        });
+    });
+}
+
+// =======================
+// Init
+// =======================
+(function () {
+    // Userdata-States anlegen (falls noch nicht vorhanden), sonst gibt es Warnungen "state not found"
+    createState(DP_PUMP_STATE, false, {
+        name: 'Speicherladepumpe Status',
+        type: 'boolean',
+        role: 'indicator',
+        read: true,
+        write: false
+    });
+
+    createState(DP_PUMP_ERROR, false, {
+        name: 'Speicherladepumpe Fehler: Shelly offline >10s',
+        type: 'boolean',
+        role: 'indicator',
+        read: true,
+        write: false
+    });
+
+    createState(DP_PUMP_IST, false, {
+        name: 'Speicherladepumpe Ist-Zustand (Schütz)',
+        type: 'boolean',
+        role: 'indicator',
+        read: true,
+        write: false
+    });
+
+    createState(DP_PUMP_SOLL_IST_FEHLER, false, {
+        name: 'Speicherladepumpe Soll/Ist-Abweichung',
+        type: 'boolean',
+        role: 'indicator',
+        read: true,
+        write: false
+    });
+
+    createState(DP_PUMP_BYPASS, false, {
+        name: 'Speicherladepumpe Überbrückung (Schlüsselschalter)',
+        type: 'boolean',
+        role: 'switch',
+        read: true,
+        write: true
+    });
+
+    createState(DP_PUMP_MANUAL_MODE, 'AUTO', {
+        name: 'Speicherladepumpe Manuell',
+        type: 'string',
+        role: 'value',
+        read: true,
+        write: true,
+        states: {
+            AUTO: 'Auto',
+            ON:   'Ein',
+            OFF:  'Aus'
+        }
+    });
+
+    // Initialwerte setzen
+    setState(DP_PUMP_STATE, false, true);
+    setState(DP_PUMP_MANUAL_MODE, 'AUTO', true);
+    setState(DP_PUMP_ERROR, false, true);
+    setState(DP_PUMP_IST, readPumpIst(), true);
+    setState(DP_PUMP_SOLL_IST_FEHLER, false, true);
+    // DP_PUMP_BYPASS bewusst nicht überschreiben (physischer Schalter)
+
+    // Startzustand Shelly online prüfen (falls beim Start schon offline)
+    const startOnline = !!getState(DP_SHELLY_ONLINE)?.val;
+    shellyOfflineFaultActive = false;
+    if (!startOnline) {
+        // Timer starten wie im Trigger
+        if (shellyOfflineTimer) clearTimeout(shellyOfflineTimer);
+        shellyOfflineTimer = setTimeout(() => {
+            const curOnline = !!getState(DP_SHELLY_ONLINE)?.val;
+            if (!curOnline) {
+                shellyOfflineFaultActive = true;
+                setState(DP_PUMP_ERROR, true, true);
+                evaluate(); // bewertet unter Berücksichtigung von ManualMode
+            }
+        }, SHELLY_OFFLINE_TIMEOUT_MS);
+    }
+
+    updateSollIst('init');
+
+    startupGpioTest();
+})();
