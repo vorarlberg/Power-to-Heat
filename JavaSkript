@@ -14,7 +14,9 @@ const TIMES = {
     ampelBlinkMs: 700,         // Blinkfrequenz LEDs
     kalibrierPauseMs: 10000,   // Mess-Stabilisierungszeit je Kalibrierschritt
     selbsttestDauerMs: 10000,  // Dauer der Lastaufbringung im Selbsttest
-    plausiCheckMs: 4000        // zusätzliche Wartezeit nach Rampenende vor Plausibilitätsprüfung
+    plausiCheckMs: 4000,       // zusätzliche Wartezeit nach Rampenende vor Plausibilitätsprüfung
+    abwAutoQuittDelayMs: 900000,      // ABW001: erster Auto-Quittier-Versuch nach 15 min
+    abwRecurrenceWindowMs: 900000     // ABW001: tritt innerhalb 15 min erneut auf => nur manuelle Quittierung
 };
 
 // --- Leistungs- / Temperatur-Grenzen & Hysterese ---
@@ -761,6 +763,37 @@ function flashAckBlink(times = 3, periodMs = 200) {
 // Aktive quittierungspflichtige Fehler (TP004/ABW001) + nicht manuelle (PWM400/PWMERR)
 // Map: code -> { status, sinceTs }
 const _activeFaults = new Map();
+let _abwAutoQuittTimer = null;
+let _abwAutoQuittAttemptTs = 0; // Zeitpunkt des ersten Auto-Quittier-Versuchs
+
+function _clearAbwAutoQuittTimer() {
+    if (_abwAutoQuittTimer) clearTimeout(_abwAutoQuittTimer);
+    _abwAutoQuittTimer = null;
+}
+
+function _scheduleAbwAutoQuitt() {
+    _clearAbwAutoQuittTimer();
+    _abwAutoQuittTimer = setTimeout(() => {
+        _abwAutoQuittTimer = null;
+        if (!_activeFaults.has('ABW001')) return;
+        const st = _activeFaults.get('ABW001')?.status;
+        if (st !== ACK_STATUS.QUITTIERBAR) return;
+
+        _abwAutoQuittAttemptTs = Date.now();
+        clearFault('ABW001');
+        appendLog('ABW001 wurde nach 15 min automatisch quittiert (erster Auto-Quittier-Versuch).');
+
+        if (_activeFaults.size === 0) {
+            _sperreAktiv = false;
+            setState(DP.status, 'ABW001 nach 15 min automatisch quittiert (erster Versuch).', true);
+            log('[Heizstab] ABW001 automatisch quittiert (erster Versuch). Sperre aufgehoben.', 'info');
+        } else {
+            setState(DP.status, 'ABW001 nach 15 min automatisch quittiert (erster Versuch). Weitere Fehler aktiv.', true);
+            log('[Heizstab] ABW001 automatisch quittiert (erster Versuch), aber weitere Fehler aktiv.', 'warn');
+        }
+        updateAckBlink();
+    }, TIMES.abwAutoQuittDelayMs);
+}
 
 function setFaultActive(code, status) {
     if (!code || !status) return;
@@ -771,12 +804,30 @@ function setFaultActive(code, status) {
         _activeFaults.set(code, { ...prev, status });
     }
     updateLogAckStatus(code, status);
+
+    if (code === 'ABW001') {
+        const now = Date.now();
+        const recurrenceActive =
+            _abwAutoQuittAttemptTs > 0 &&
+            (now - _abwAutoQuittAttemptTs) <= TIMES.abwRecurrenceWindowMs;
+
+        if (recurrenceActive) {
+            appendLog('ABW001 erneut innerhalb 15 min nach Auto-Quittierung aufgetreten – manuelle Quittierung erforderlich (erster Auto-Versuch wurde bereits durchgeführt).');
+            setState(DP.status, 'Abweichung erneut innerhalb 15 min nach Auto-Quittierung. Manuelle Quittierung erforderlich. [ABW001]', true);
+            _clearAbwAutoQuittTimer();
+        } else {
+            _scheduleAbwAutoQuitt();
+        }
+    }
 }
 
 function clearFault(code) {
     if (!code) return;
     if (_activeFaults.has(code)) {
         _activeFaults.delete(code);
+    }
+    if (code === 'ABW001') {
+        _clearAbwAutoQuittTimer();
     }
     // Log-Eintrag (falls vorhanden) als quittiert markieren
     updateLogAckStatus(code, ACK_STATUS.QUITTIERT);
