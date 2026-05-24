@@ -15,13 +15,15 @@ const RESTART_CMD = 'iobroker restart energiefluss-erweitert.2';
 
 const DEFAULT_DURATION_MIN = 30;           // Standardlaufzeit bei Neuerstellung
 const COUNTDOWN_INTERVAL_MS = 1000;        // Auflösung Restlaufzeit
+const SCRIPT_VERSION = '1.1.0';
 
 const DP = {
     start: BASE + 'Start',            // Button zum Starten
     duration: BASE + 'LaufzeitMin',   // Vorgabe der Laufzeit in Minuten
     remaining: BASE + 'RestlaufzeitMin', // Ausgabe der Restlaufzeit in Minuten
     manual: BASE + 'Manuell',         // 'auto' | 'on' | 'off'
-    status: BASE + 'Status'           // Statusausgabe
+    status: BASE + 'Status',          // Statusausgabe
+    scriptVersion: BASE + 'ScriptVersion'
 };
 
 // ===== DATENPUNKTE ANLEGEN =====
@@ -30,6 +32,7 @@ createState(DP.duration, DEFAULT_DURATION_MIN, {name: 'Laufzeit (min)', type: 'n
 createState(DP.remaining, 0, {name: 'Restlaufzeit (min)', type: 'number', role: 'value', unit: 'min', read: true, write: false});
 createState(DP.manual, 'auto', {name: 'Manuell', type: 'string', role: 'state', read: true, write: true, states: {auto: 'Auto', on: 'An', off: 'Aus'}});
 createState(DP.status, 'Bereit', {name: 'Status', type: 'string', role: 'state', read: true, write: false});
+createState(DP.scriptVersion, SCRIPT_VERSION, {name: 'Skriptversion', type: 'string', role: 'text', read: true, write: false});
 
 // ===== VARIABLEN =====
 let countdown = null;

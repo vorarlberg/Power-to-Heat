@@ -29,6 +29,9 @@ const DP_PUMP_BYPASS  = 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch'; 
 
 const DP_PUMP_IST     = '0_userdata.0.Heizung.Speicherladepumpe.Ist'; // boolean: rückgemeldeter Pumpenzustand (Schütz)
 const DP_PUMP_SOLL_IST_FEHLER = '0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler'; // boolean: Soll/Ist Abweichung (nur wenn nicht überbrückt)
+const DP_SCRIPT_VERSION = '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion';
+
+const SCRIPT_VERSION = '1.1.0';
 
 // =======================
 // Parameter
@@ -45,6 +48,14 @@ const GPIO_TEST_DELAY_MS = 500;
 const IST_INVERT          = false; // auf true setzen, falls der Kontakt logisch invertiert ist (z.B. NC)
 
 const SHELLY_OFFLINE_TIMEOUT_MS = 10000;
+
+createState(DP_SCRIPT_VERSION, SCRIPT_VERSION, {
+    name: 'Speicherladepumpe - Skriptversion',
+    type: 'string',
+    role: 'text',
+    read: true,
+    write: false
+});
 
 // =======================
 // Interne Zustände

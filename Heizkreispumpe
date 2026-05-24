@@ -16,6 +16,9 @@ const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
 const SPEICHERLADEPUMPE_STATUS_DP = '0_userdata.0.Heizung.Speicherladepumpe.Status'; // true=AN
 
 const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
+const SCRIPT_VERSION    = '1.1.0';
+const VERSION_DP        = `${BASE_DP}.scriptVersion`;
+
 const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
 const STATE_DP           = `${BASE_DP}.state`;          // bool: realer Pumpenzustand (Spiegel von PUMP_STATUS_DP)
 const LAST_ACTION_DP     = `${BASE_DP}.lastAction`;   // string: Logging/Info
@@ -59,6 +62,14 @@ function ensureDps() {
     read: true,
     write: false
   });
+  createState(VERSION_DP, SCRIPT_VERSION, {
+    name: 'Heizkreispumpe - Skriptversion',
+    type: 'string',
+    role: 'text',
+    read: true,
+    write: false
+  });
+
   createState(`${BASE_DP}.shellyOffline`, false, {
     name: 'Heizkreispumpe - Shelly offline',
     type: 'boolean',
