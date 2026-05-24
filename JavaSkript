@@ -1,84 +1,165 @@
-// Datenpunkte
-const hueDP = '0_userdata.0.Shelly.Wandlampe.hue';
-const satDP = '0_userdata.0.Shelly.Wandlampe.saturation';
-const valDP = '0_userdata.0.Shelly.Wandlampe.gain';
+/**
+ * ABW0001-Quittierungslogik
+ *
+ * Ablauf:
+ * 1) Bei erstem Auftreten von ABW0001 wird nach 15 Minuten automatisch quittiert.
+ * 2) Tritt ABW0001 innerhalb der folgenden 15 Minuten erneut auf,
+ *    bleibt der Heizstab gesperrt bis zur manuellen Quittierung.
+ * 3) Meldetext und Log enthalten den Hinweis, dass beim ersten Mal
+ *    eine automatische Quittierung versucht wurde.
+ */
 
-const colorDP = 'shelly.0.SHCB-1#3494546E47C3#1.lights.rgbw'; // Ziel: HEX-String wie #RRGGBBAA
+// ==================== KONFIGURATION (Datenpunkte & Zeiten) ====================
+const CFG = {
+    dp: {
+        statusCode: '0_userdata.0.Heizung.PowerToHeat.StatusCode',
+        manualQuitt: '0_userdata.0.Heizung.PowerToHeat.Quittierung',
+        autoQuittCmd: '0_userdata.0.Heizung.PowerToHeat.AutoQuittieren',
+        heizstabFreigabe: '0_userdata.0.Heizung.PowerToHeat.HeizstabFreigabe',
+        meldung: '0_userdata.0.Heizung.PowerToHeat.Meldung',
 
-// Funktion HSV → RGB
-function hsvToRgb(h, s, v) {
-    let r, g, b;
+        // interne/ausgabe DPs (read-only)
+        firstErrorTs: '0_userdata.0.Heizung.PowerToHeat.ABW0001.ErstauftretenTs',
+        autoQuittTried: '0_userdata.0.Heizung.PowerToHeat.ABW0001.AutoQuittVersucht',
+        watchUntilTs: '0_userdata.0.Heizung.PowerToHeat.ABW0001.WatchUntilTs',
+        lockManual: '0_userdata.0.Heizung.PowerToHeat.ABW0001.ManuelleQuittErforderlich'
+    },
+    times: {
+        autoQuittDelayMin: 15,
+        reoccurWindowMin: 15
+    },
+    code: 'ABW0001'
+};
 
-    let i = Math.floor(h / 60) % 6;
-    let f = (h / 60) - i;
-    let p = v * (1 - s);
-    let q = v * (1 - f * s);
-    let t = v * (1 - (1 - f) * s);
+// ==================== DATENPUNKTE ANLEGEN ====================
+createState(CFG.dp.firstErrorTs, 0, { name: 'ABW0001 Erstauftreten (Epoch ms)', type: 'number', role: 'value.time', read: true, write: false });
+createState(CFG.dp.autoQuittTried, false, { name: 'ABW0001 Auto-Quittierung versucht', type: 'boolean', role: 'indicator', read: true, write: false });
+createState(CFG.dp.watchUntilTs, 0, { name: 'ABW0001 Überwachungsfenster bis (Epoch ms)', type: 'number', role: 'value.time', read: true, write: false });
+createState(CFG.dp.lockManual, false, { name: 'ABW0001 manuelle Quittierung erforderlich', type: 'boolean', role: 'indicator.alarm', read: true, write: false });
 
-    switch (i) {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        case 5: r = v; g = p; b = q; break;
+// ==================== HILFSFUNKTIONEN ====================
+let autoQuittTimer = null;
+let lastAbwActive = false;
+
+function nowMs() {
+    return Date.now();
+}
+
+function minutesToMs(min) {
+    return min * 60 * 1000;
+}
+
+function setMeldung(text) {
+    setState(CFG.dp.meldung, text, true);
+    log(text, 'warn');
+}
+
+function isAbw0001Active() {
+    const s = getState(CFG.dp.statusCode);
+    return !!s && s.val === CFG.code;
+}
+
+function clearAutoTimer() {
+    if (autoQuittTimer) {
+        clearTimeout(autoQuittTimer);
+        autoQuittTimer = null;
+    }
+}
+
+function scheduleAutoQuitt(firstTs) {
+    clearAutoTimer();
+    const dueAt = firstTs + minutesToMs(CFG.times.autoQuittDelayMin);
+    const waitMs = Math.max(0, dueAt - nowMs());
+
+    autoQuittTimer = setTimeout(() => {
+        autoQuittTimer = null;
+
+        if (!isAbw0001Active()) {
+            return;
+        }
+        if (!!getState(CFG.dp.lockManual).val || !!getState(CFG.dp.autoQuittTried).val) {
+            return;
+        }
+
+        setState(CFG.dp.autoQuittCmd, true, false);
+        setState(CFG.dp.autoQuittTried, true, true);
+        setState(CFG.dp.watchUntilTs, nowMs() + minutesToMs(CFG.times.reoccurWindowMin), true);
+        setMeldung('ABW0001: Erste automatische Quittierung wurde versucht. Überwache 15 Minuten auf Wiederauftreten.');
+    }, waitMs);
+}
+
+function resetAbwTracking() {
+    clearAutoTimer();
+    setState(CFG.dp.firstErrorTs, 0, true);
+    setState(CFG.dp.autoQuittTried, false, true);
+    setState(CFG.dp.watchUntilTs, 0, true);
+    setState(CFG.dp.lockManual, false, true);
+}
+
+function handleStatusTransition() {
+    const abwActive = isAbw0001Active();
+    const risingEdge = abwActive && !lastAbwActive;
+    const fallingEdge = !abwActive && lastAbwActive;
+
+    if (risingEdge) {
+        const manualLock = !!getState(CFG.dp.lockManual).val;
+        const autoTried = !!getState(CFG.dp.autoQuittTried).val;
+        const watchUntil = getState(CFG.dp.watchUntilTs).val || 0;
+
+        if (manualLock) {
+            setState(CFG.dp.heizstabFreigabe, false, false);
+            lastAbwActive = abwActive;
+            return;
+        }
+
+        if (autoTried && nowMs() <= watchUntil) {
+            setState(CFG.dp.lockManual, true, true);
+            setState(CFG.dp.heizstabFreigabe, false, false);
+            setMeldung('ABW0001 innerhalb 15 Minuten erneut aufgetreten. Heizstab bleibt aus bis zur manuellen Quittierung (erste Auto-Quittierung wurde bereits versucht).');
+            lastAbwActive = abwActive;
+            return;
+        }
+
+        if (!autoTried) {
+            const firstTs = nowMs();
+            setState(CFG.dp.firstErrorTs, firstTs, true);
+            setMeldung('ABW0001 erkannt. Automatische Quittierung in 15 Minuten geplant.');
+            scheduleAutoQuitt(firstTs);
+        }
     }
 
-    return {
-        r: Math.round(r * 255),
-        g: Math.round(g * 255),
-        b: Math.round(b * 255)
-    };
-}
-
-// Funktion RGB → RGBW
-function rgbToRgbw(r, g, b) {
-    let w = Math.min(r, g, b);
-    r -= w;
-    g -= w;
-    b -= w;
-    return {r: r, g: g, b: b, w: w};
-}
-
-// Hilfsfunktion: Zahl (0–255) → 2-stellige Hex
-function toHex(val) {
-    let hex = val.toString(16).toUpperCase();
-    return hex.length === 1 ? '0' + hex : hex;
-}
-
-// Prüfe, ob Ziel-Datenpunkt existiert
-function colorDpExists() {
-    return getObject(colorDP) !== null;
-}
-
-// Aktualisiere HEX-String
-function updateColor() {
-    if (!colorDpExists()) {
-        log('Fehler: Der Datenpunkt "' + colorDP + '" existiert nicht!', 'error');
-        return;
+    if (fallingEdge) {
+        clearAutoTimer();
     }
 
-    let h = getState(hueDP).val;
-    let s = getState(satDP).val;
-    let v = getState(valDP).val;
-
-    // Skalierung
-    s = s / 100;
-    v = v / 100;
-
-    let rgb = hsvToRgb(h, s, v);
-    let rgbw = rgbToRgbw(rgb.r, rgb.g, rgb.b);
-
-    // ROT und GRÜN werden **nicht mehr** vertauscht
-    let hexString = '#' + toHex(rgbw.r) + toHex(rgbw.g) + toHex(rgbw.b) + toHex(rgbw.w);
-
-    setState(colorDP, hexString);
+    lastAbwActive = abwActive;
 }
 
-// Trigger (bei jeder Änderung prüfen & rechnen)
-on({id: hueDP, change: 'ne'}, updateColor);
-on({id: satDP, change: 'ne'}, updateColor);
-on({id: valDP, change: 'ne'}, updateColor);
+function unlockAfterManualQuittierung() {
+    resetAbwTracking();
+    setState(CFG.dp.heizstabFreigabe, true, false);
+    setMeldung('ABW0001 quittiert. Heizstab wieder freigegeben.');
+}
 
-// Initial berechnen
-updateColor();
+// ==================== EVENTS ====================
+on({ id: CFG.dp.statusCode, change: 'ne' }, handleStatusTransition);
+
+on({ id: CFG.dp.manualQuitt, val: true }, () => {
+    unlockAfterManualQuittierung();
+    setState(CFG.dp.manualQuitt, false, true);
+});
+
+// ==================== INIT ====================
+lastAbwActive = isAbw0001Active();
+if (lastAbwActive && !getState(CFG.dp.autoQuittTried).val && !getState(CFG.dp.lockManual).val) {
+    let firstTs = getState(CFG.dp.firstErrorTs).val || 0;
+    if (!firstTs) {
+        firstTs = nowMs();
+        setState(CFG.dp.firstErrorTs, firstTs, true);
+    }
+    scheduleAutoQuitt(firstTs);
+}
+
+onStop(() => {
+    clearAutoTimer();
+}, 200);

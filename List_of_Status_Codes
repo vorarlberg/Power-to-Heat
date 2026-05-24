@@ -14,6 +14,6 @@
 | TP002  | Maximaltemperatur <tempExt>°C erreicht\:codex-file-citation                  |
 | TP003  | WW Sicherstellung aktiv\:codex-file-citation                                 |
 | RG003  | Regelung aktiv\:codex-file-citation                                          |
-| ABW001 | Abweichung erkannt. Heizstab gesperrt\:codex-file-citation                   |
+| ABW001 | Abweichung erkannt. Heizstab gesperrt (Auto-Quittierung beim ersten Auftreten wird versucht)\:codex-file-citation |
 | RG004  | Überschuss zu gering. Heizstab aus\:codex-file-citation                      |
 | SYS000 | Initialisierung abgeschlossen. Warte auf PV-Überschuss\:codex-file-citation  |
