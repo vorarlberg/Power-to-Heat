@@ -1,0 +1,195 @@
+/******************************************************
+ * Heizkreispumpe über Shelly + Stromstoßrelais (Impuls)
+ * - Steuerimpuls: shelly...Relay0.Switch (max 1s true)
+ * - Status:        shelly...Input0.Status (Pumpe an/aus)
+ * - Manueller Befehl: 0_userdata.0.Heizung.Heizkreispumpe.manualRequest (true=EIN, false=AUS)
+ * - Modus-Schaltung:  beim Wechsel von 0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus wird EIN/AUS gesetzt
+ *   (danach werden manuelle Änderungen nicht mehr übersteuert bis zum nächsten Moduswechsel)
+ ******************************************************/
+
+// ===================== KONFIG =========================
+const SHELLY_TOGGLE_DP   = 'shelly.1.shellypro3#ece334ed5048#1.Relay0.Switch';  // Impuls zum Stromstoßrelais
+const PUMP_STATUS_DP     = 'shelly.1.shellypro3#ece334ed5048#1.Input0.Status';  // Rückmeldung: true=AN, false=AUS
+const SHELLY_ONLINE_DP   = 'shelly.1.shellypro3#ece334ed5048#1.online'; // Shelly online Status
+
+const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
+
+const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
+const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
+const STATE_DP           = `${BASE_DP}.state`;          // bool: realer Pumpenzustand (Spiegel von PUMP_STATUS_DP)
+const LAST_ACTION_DP     = `${BASE_DP}.lastAction`;   // string: Logging/Info
+
+const PULSE_MS           = 900;   // < 1 Sekunde (sicher unter 1000ms)
+const MIN_GAP_MS         = 1500;  // Mindestabstand zwischen Impulsen (Schutz vor Prellen/Loops)
+
+// Betriebsmodus-Strings (ggf. an deine exakten Texte anpassen)
+const MODE_SUPPORT       = 'Unterstützungsbetrieb';
+const MODE_HEIZSTAB      = 'Heizstabbetrieb';
+const MODE_KESSEL        = 'Kesselbetrieb';
+
+// ===================== STATE ==========================
+let isPulsing = false;
+let lastPulseTs = 0;
+
+// ===================== HELPERS =========================
+function ensureDps() {
+  createState(BASE_DP, null, { type: 'folder', read: true, write: false });
+
+  createState(MANUAL_REQUEST_DP, false, {
+    name: 'Heizkreispumpe - Manuell EIN/AUS (Befehl)',
+    type: 'boolean',
+    role: 'switch',
+    read: true,
+    write: true
+  });
+
+  createState(STATE_DP, false, {
+    name: 'Heizkreispumpe - Zustand (real)',
+    type: 'boolean',
+    role: 'indicator',
+    read: true,
+    write: false
+  });
+
+  createState(LAST_ACTION_DP, '', {
+    name: 'Heizkreispumpe - letzte Aktion',
+    type: 'string',
+    role: 'text',
+    read: true,
+    write: false
+  });
+  createState(`${BASE_DP}.shellyOffline`, false, {
+    name: 'Heizkreispumpe - Shelly offline',
+    type: 'boolean',
+    role: 'alarm',
+    read: true,
+    write: false
+  });
+}
+
+function logAction(msg) {
+  setState(LAST_ACTION_DP, msg, true);
+  log(`[Heizkreispumpe] ${msg}`, 'info');
+}
+
+function getPumpIsOn() {
+  const s = getState(PUMP_STATUS_DP);
+  return !!(s && s.val === true);
+}
+
+function getBetriebsmodus() {
+  const s = getState(MODE_DP);
+  return s ? String(s.val) : '';
+}
+
+function isShellyOnline() {
+  const s = getState(SHELLY_ONLINE_DP);
+  return !!(s && s.val === true);
+}
+
+/**
+ * Berechnet den gewünschten Pumpenzustand:
+ * - Support oder Heizstab => true
+ * - Kessel => false
+ * - sonst: keine Änderung erzwingen -> bleib wie aktuell
+ */
+function computeDesired() {
+  const mode = getBetriebsmodus();
+  const current = getPumpIsOn();
+
+  if (mode === MODE_SUPPORT || mode === MODE_HEIZSTAB) return true;
+  if (mode === MODE_KESSEL) return false;
+
+  // Unbekannter Modus -> nichts erzwingen
+  return current;
+}
+
+function canPulseNow() {
+  const now = Date.now();
+  if (isPulsing) return false;
+  if ((now - lastPulseTs) < MIN_GAP_MS) return false;
+  return true;
+}
+
+function setPumpTo(desired, reason) {
+  const current = getPumpIsOn();
+
+  // Wenn Soll == Ist -> nichts tun
+  if (desired === current) {
+    logAction(`Keine Aktion nötig (Ist bereits ${current ? 'AN' : 'AUS'}) [${reason}]`);
+    return;
+  }
+
+  if (!canPulseNow()) {
+    logAction(`Impuls gesperrt (Ist=${current ? 'AN' : 'AUS'}, Soll=${desired ? 'AN' : 'AUS'}) [${reason}]`);
+    return;
+  }
+
+  // Toggle-Impuls
+  isPulsing = true;
+  lastPulseTs = Date.now();
+  logAction(`Toggle-Impuls: ${current ? 'AN→AUS' : 'AUS→AN'} [${reason}]`);
+
+  setState(SHELLY_TOGGLE_DP, true, false, () => {
+    setTimeout(() => {
+      setState(SHELLY_TOGGLE_DP, false, false);
+      isPulsing = false;
+    }, PULSE_MS);
+  });
+}
+
+function applyDesired(reason) {
+  // Shelly offline -> keine Steuerung möglich
+  if (!isShellyOnline()) {
+    setState(`${BASE_DP}.shellyOffline`, true, true);
+    logAction(`FEHLER: Shelly offline – Pumpe kann nicht gesteuert werden [${reason}]`);
+    return;
+  } else {
+    if (getState(`${BASE_DP}.shellyOffline`)?.val === true) {
+      setState(`${BASE_DP}.shellyOffline`, false, true);
+      logAction('Shelly wieder online');
+    }
+  }
+
+  const desired = computeDesired();
+  setPumpTo(desired, reason);
+}
+
+// ===================== TRIGGER =========================
+ensureDps();
+
+setState(STATE_DP, getPumpIsOn(), true);
+
+on({ id: MODE_DP, change: 'ne' }, () => applyDesired('MODE-Wechsel'));
+
+on({ id: MANUAL_REQUEST_DP, change: 'ne' }, obj => {
+  // Wenn der Wert vom Skript gespiegelt wurde (ack=true), nicht wieder schalten (sonst Toggle-Loop)
+  if (obj && obj.state && obj.state.ack === true) return;
+
+  // Manuelle Bedienung: danach wird NICHT mehr übersteuert bis zum nächsten MODE-Wechsel
+  const desired = obj.state.val === true;
+  if (!isShellyOnline()) {
+    setState(`${BASE_DP}.shellyOffline`, true, true);
+    logAction('FEHLER: Shelly offline – manueller Befehl nicht möglich');
+    return;
+  }
+  setPumpTo(desired, 'MANUELL');
+});
+
+// Status-Spiegel (realer Zustand + ManualRequest synchronisieren)
+on({ id: PUMP_STATUS_DP, change: 'ne' }, () => {
+  const isOn = getPumpIsOn();
+
+  // Realen Zustand spiegeln
+  setState(STATE_DP, isOn, true);
+
+  // Wenn am Taster umgeschaltet wurde: ManualRequest entsprechend nachziehen
+  // ack=true damit erkennbar ist, dass es vom Skript kommt (siehe Handler oben)
+  setState(MANUAL_REQUEST_DP, isOn, true);
+});
+
+// Initialer Lauf
+setTimeout(() => {
+  logAction('Start: initiale Auswertung');
+  applyDesired('Start');
+}, 1000);
