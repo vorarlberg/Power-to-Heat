@@ -19,6 +19,15 @@ const TIMES = {
     abwRecurrenceWindowMs: 900000     // ABW001: tritt innerhalb 15 min erneut auf => nur manuelle Quittierung
 };
 
+const PUMP_SCRIPT_CHECK = {
+    intervalMs: 300000,
+    scripts: [
+        { name: 'Heizkreispumpe', dp: '0_userdata.0.Heizung.Heizkreispumpe.scriptVersion', expected: '1.1.0' },
+        { name: 'Speicherladepumpe', dp: '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion', expected: '1.1.0' },
+        { name: 'WW-Pumpe', dp: '0_userdata.0.Heizung.WW-Pumpe.ScriptVersion', expected: '1.1.0' }
+    ]
+};
+
 // --- Leistungs- / Temperatur-Grenzen & Hysterese ---
 const LIMITS = {
     maxPowerW: 3500,
@@ -165,6 +174,8 @@ const DP = {
     sperreRegelung:     BASE + 'Regelung.Sperre',               // Kalibrier/Fehler-Sperre
     resetFail:          BASE + 'Regelung.Fail_Reset',           // BUTTON
     ackBlink:           BASE + 'Regelung.QuittierTaster_Blink',  // vom Skript geschaltet (Blink-LED/Anzeige)
+    pumpScriptsOk:      BASE + 'Regelung.PumpenSkripte_OK',
+    pumpScriptsError:   BASE + 'Regelung.PumpenSkripte_Fehler',
 
     // Parameter
     deltaT:             BASE + 'Parameter.DeltaT_Regelbereich',
@@ -239,6 +250,8 @@ ensureStateNumRO(DP.sollWattRaw, 'Sollleistung unkalibriert (RO)', 'W', 0, LIMIT
 // Buttons
 ensureStateButton(DP.resetFail, 'Fehler-Reset');          // BUTTON
 ensureStateBoolRO(DP.ackBlink, 'Quittiertaster blinkt (RO)');
+ensureStateBoolRO(DP.pumpScriptsOk, 'Pumpenskripte auf Soll-Version (RO)');
+ensureStateRO(DP.pumpScriptsError, { name: 'Pumpenskripte Versionsfehler (RO)', type: 'string', role: 'text' });
 ensureStateButton(DP.kalStart, 'Kalibrierung starten');   // BUTTON
 ensureStateButton(DP.selfStart, 'Selbsttest starten');    // BUTTON
 
@@ -1505,6 +1518,31 @@ on({ id: DP.pwmStatus, change: 'ne' }, (obj) => {
 });
 
 
+
+function checkPumpScriptVersions() {
+    const mismatches = [];
+
+    for (const script of PUMP_SCRIPT_CHECK.scripts) {
+        const st = getState(script.dp);
+        const current = st && st.val !== null && st.val !== undefined ? String(st.val) : '';
+        if (current !== script.expected) {
+            mismatches.push(`${script.name}: erwartet ${script.expected}, ist ${current || 'nicht vorhanden'}`);
+        }
+    }
+
+    if (mismatches.length > 0) {
+        const msg = `Pumpenskripte nicht auf Soll-Stand: ${mismatches.join(' | ')}`;
+        setState(DP.pumpScriptsOk, false, true);
+        setState(DP.pumpScriptsError, msg, true);
+        log(`[VERSION] ${msg}`, 'error');
+        return false;
+    }
+
+    setState(DP.pumpScriptsOk, true, true);
+    setState(DP.pumpScriptsError, '', true);
+    return true;
+}
+
 /* ==========================================================
    8a) Trigger / Scheduler
    ========================================================== */
@@ -1521,6 +1559,7 @@ on({ id: EXTERNAL.wrDachOnline,     change: 'ne' }, () => regelzyklus());
 on({ id: EXTERNAL.wrFassadeOnline,  change: 'ne' }, () => regelzyklus());
 
 setInterval(regelzyklus, TIMES.regelIntervallSek * 1000);
+setInterval(checkPumpScriptVersions, PUMP_SCRIPT_CHECK.intervalMs);
 
 // Countdown aktualisieren (jede Sekunde)
 setInterval(() => {
@@ -1562,6 +1601,8 @@ setState(DP.nextRunInSek, TIMES.regelIntervallSek, true);
 
 // Baseline für Event-Trigger setzen
 _lastNetzNettoW = (Number(getState(EXTERNAL.ueberschussW)?.val) || 0) - (Number(getState(EXTERNAL.netzverbrauchW)?.val) || 0);
+
+checkPumpScriptVersions();
 
 // Initiale Ampel/Quittieranzeige
 updateAmpel();
