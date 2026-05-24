@@ -1,6 +1,6 @@
 # 🔥 Power-to-Heat
 
-> **PV-Überschuss intelligent in Wärme umwandeln** – mit klaren Betriebsmodi, Sicherheitslogik und modularen ioBroker-Skripten.
+**PV-Überschuss intelligent in Wärme umwandeln** – mit klaren Betriebsmodi, Sicherheitslogik und modularen ioBroker-Skripten.
 
 ---
 
@@ -100,39 +100,32 @@ Enthält u. a.:
 
 ```mermaid
 flowchart LR
-    subgraph SENS[Sensorik / Quellen]
-        PV[PV / Netzwerte
-(Überschuss, Netzbezug)]
-        TEMP[Temperaturen
-(intern/extern/Speicher)]
-        ONLINE[Online-Status
-(Modbus, MQTT, Shelly)]
-        IST[Ist-Rückmeldungen
-(Pumpe, Leistung, FI/LS)]
+    subgraph SENS["Sensorik / Quellen"]
+        PV["PV / Netzwerte<br/>(Überschuss, Netzbezug)"]
+        TEMP["Temperaturen<br/>(intern/extern/Speicher)"]
+        ONLINE["Online-Status<br/>(Modbus, MQTT, Shelly)"]
+        IST["Ist-Rückmeldungen<br/>(Pumpe, Leistung, FI/LS)"]
     end
 
-    subgraph CTRL[ioBroker Logik]
-        MAIN[JavaSkript
-Hauptregelung Heizstab]
-        SP[Speicherladepumpe]
-        HK[Heizkreispumpe]
-        WW[Warm-water-circulation-pump-control]
-        CODES[List_of_Status_Codes]
+    subgraph CTRL["ioBroker Logik"]
+        MAIN["JavaSkript<br/>Hauptregelung Heizstab"]
+        SP["Speicherladepumpe"]
+        HK["Heizkreispumpe"]
+        WW["Warm-water-circulation-pump-control"]
+        CODES["List_of_Status_Codes"]
     end
 
-    subgraph ACT[Aktoren]
-        ELWA[Heizstab
-MY-PV AC ELWA 2]
-        P1[Speicherladepumpe]
-        P2[Heizkreispumpe]
-        P3[WW-Zirkulationspumpe]
-        LED[Status-LEDs / Ampel]
+    subgraph ACT["Aktoren"]
+        ELWA["Heizstab<br/>MY-PV AC ELWA 2"]
+        P1["Speicherladepumpe"]
+        P2["Heizkreispumpe"]
+        P3["WW-Zirkulationspumpe"]
+        LED["Status-LEDs / Ampel"]
     end
 
-    subgraph DP[ioBroker Datenpunkte]
-        INDP[Schreibbare Steuer-/Parameter-DPs]
-        OUTDP[Read-only Ausgabe-DPs
-(Status, Ist, Fehler)]
+    subgraph DP["ioBroker Datenpunkte"]
+        INDP["Schreibbare Steuer-/Parameter-DPs"]
+        OUTDP["Read-only Ausgabe-DPs<br/>(Status, Ist, Fehler)"]
     end
 
     PV --> MAIN
