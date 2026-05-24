@@ -13,6 +13,7 @@ const PUMP_STATUS_DP     = 'shelly.1.shellypro3#ece334ed5048#1.Input0.Status';  
 const SHELLY_ONLINE_DP   = 'shelly.1.shellypro3#ece334ed5048#1.online'; // Shelly online Status
 
 const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
+const SPEICHERLADEPUMPE_STATUS_DP = '0_userdata.0.Heizung.Speicherladepumpe.Status'; // true=AN
 
 const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
 const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
@@ -89,7 +90,8 @@ function isShellyOnline() {
 
 /**
  * Berechnet den gewünschten Pumpenzustand:
- * - Support oder Heizstab => true
+ * - Support => true
+ * - Heizstab => true, außer Speicherladepumpe läuft (WW-Vorrang)
  * - Kessel => false
  * - sonst: keine Änderung erzwingen -> bleib wie aktuell
  */
@@ -97,7 +99,13 @@ function computeDesired() {
   const mode = getBetriebsmodus();
   const current = getPumpIsOn();
 
-  if (mode === MODE_SUPPORT || mode === MODE_HEIZSTAB) return true;
+  if (mode === MODE_SUPPORT) return true;
+
+  if (mode === MODE_HEIZSTAB) {
+    const speicherladepumpeOn = !!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val;
+    // Warmwasser hat Vorrang: Heizkreispumpe aus solange Speicherladepumpe an ist
+    return !speicherladepumpeOn;
+  }
   if (mode === MODE_KESSEL) return false;
 
   // Unbekannter Modus -> nichts erzwingen
@@ -161,6 +169,7 @@ ensureDps();
 setState(STATE_DP, getPumpIsOn(), true);
 
 on({ id: MODE_DP, change: 'ne' }, () => applyDesired('MODE-Wechsel'));
+on({ id: SPEICHERLADEPUMPE_STATUS_DP, change: 'ne' }, () => applyDesired('WW-Vorrang Speicherladepumpe'));
 
 on({ id: MANUAL_REQUEST_DP, change: 'ne' }, obj => {
   // Wenn der Wert vom Skript gespiegelt wurde (ack=true), nicht wieder schalten (sonst Toggle-Loop)
