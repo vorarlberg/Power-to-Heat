@@ -1,6 +1,6 @@
 # 🔥 Power-to-Heat
 
-> **PV-Überschuss intelligent in Wärme umwandeln** – mit klaren Betriebsmodi, Sicherheitslogik und modularen ioBroker-Skripten.
+**PV-Überschuss intelligent in Wärme umwandeln** – mit klaren Betriebsmodi, Sicherheitslogik und modularen ioBroker-Skripten.
 
 ---
 
