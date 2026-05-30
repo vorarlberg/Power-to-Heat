@@ -16,12 +16,14 @@ const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
 const SPEICHERLADEPUMPE_STATUS_DP = '0_userdata.0.Heizung.Speicherladepumpe.Status'; // true=AN
 
 const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
-const SCRIPT_VERSION    = '1.1.0';
+const SCRIPT_VERSION    = '1.2.0';
 const VERSION_DP        = `${BASE_DP}.scriptVersion`;
 
 const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
 const STATE_DP           = `${BASE_DP}.state`;          // bool: realer Pumpenzustand (Spiegel von PUMP_STATUS_DP)
 const LAST_ACTION_DP     = `${BASE_DP}.lastAction`;   // string: Logging/Info
+const STATE_BEFORE_SPEICHERLADEPUMPE_DP = `${BASE_DP}.stateBeforeSpeicherladepumpe`; // bool: Zustand vor WW-Vorrang
+const SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP = `${BASE_DP}.speicherladepumpePriorityActive`; // bool: WW-Vorrang läuft
 
 const PULSE_MS           = 900;   // < 1 Sekunde (sicher unter 1000ms)
 const MIN_GAP_MS         = 1500;  // Mindestabstand zwischen Impulsen (Schutz vor Prellen/Loops)
@@ -74,6 +76,22 @@ function ensureDps() {
     name: 'Heizkreispumpe - Shelly offline',
     type: 'boolean',
     role: 'alarm',
+    read: true,
+    write: false
+  });
+
+  createState(STATE_BEFORE_SPEICHERLADEPUMPE_DP, false, {
+    name: 'Heizkreispumpe - Zustand vor Speicherladepumpe',
+    type: 'boolean',
+    role: 'indicator',
+    read: true,
+    write: false
+  });
+
+  createState(SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP, false, {
+    name: 'Heizkreispumpe - Speicherladepumpe Vorrang aktiv',
+    type: 'boolean',
+    role: 'indicator',
     read: true,
     write: false
   });
@@ -157,6 +175,58 @@ function setPumpTo(desired, reason) {
   });
 }
 
+function getStateBeforeSpeicherladepumpe() {
+  return !!getState(STATE_BEFORE_SPEICHERLADEPUMPE_DP)?.val;
+}
+
+function isSpeicherladepumpePriorityActive() {
+  return !!getState(SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP)?.val;
+}
+
+function beginSpeicherladepumpePriority() {
+  if (isSpeicherladepumpePriorityActive()) return;
+
+  const current = getPumpIsOn();
+  setState(STATE_BEFORE_SPEICHERLADEPUMPE_DP, current, true);
+  setState(SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP, true, true);
+  logAction(`Speicherladepumpe an: vorherigen Zustand ${current ? 'AN' : 'AUS'} gemerkt`);
+}
+
+function endSpeicherladepumpePriority(reason) {
+  const restoreState = getStateBeforeSpeicherladepumpe();
+  setState(SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP, false, true);
+
+  if (getBetriebsmodus() === MODE_HEIZSTAB) {
+    setPumpTo(restoreState, `${reason}: vorheriger Zustand ${restoreState ? 'AN' : 'AUS'}`);
+    return;
+  }
+
+  applyDesired(reason);
+}
+
+function handleSpeicherladepumpeChange(reason) {
+  const speicherladepumpeOn = !!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val;
+
+  if (speicherladepumpeOn) {
+    beginSpeicherladepumpePriority();
+    applyDesired(reason);
+    return;
+  }
+
+  if (isSpeicherladepumpePriorityActive()) {
+    endSpeicherladepumpePriority(reason);
+    return;
+  }
+
+  // Ohne gemerkten vorherigen Zustand im Heizstabbetrieb nicht automatisch einschalten.
+  if (getBetriebsmodus() === MODE_HEIZSTAB) {
+    setPumpTo(getPumpIsOn(), `${reason}: kein vorheriger Zustand gemerkt`);
+    return;
+  }
+
+  applyDesired(reason);
+}
+
 function applyDesired(reason) {
   // Shelly offline -> keine Steuerung möglich
   if (!isShellyOnline()) {
@@ -180,7 +250,7 @@ ensureDps();
 setState(STATE_DP, getPumpIsOn(), true);
 
 on({ id: MODE_DP, change: 'ne' }, () => applyDesired('MODE-Wechsel'));
-on({ id: SPEICHERLADEPUMPE_STATUS_DP, change: 'ne' }, () => applyDesired('WW-Vorrang Speicherladepumpe'));
+on({ id: SPEICHERLADEPUMPE_STATUS_DP, change: 'ne' }, () => handleSpeicherladepumpeChange('WW-Vorrang Speicherladepumpe'));
 
 on({ id: MANUAL_REQUEST_DP, change: 'ne' }, obj => {
   // Wenn der Wert vom Skript gespiegelt wurde (ack=true), nicht wieder schalten (sonst Toggle-Loop)
@@ -211,5 +281,8 @@ on({ id: PUMP_STATUS_DP, change: 'ne' }, () => {
 // Initialer Lauf
 setTimeout(() => {
   logAction('Start: initiale Auswertung');
+  if (!!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val) {
+    beginSpeicherladepumpePriority();
+  }
   applyDesired('Start');
 }, 1000);
