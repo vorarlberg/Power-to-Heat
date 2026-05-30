@@ -71,6 +71,10 @@ function ensureDps() {
     read: true,
     write: false
   });
+  // createState aktualisiert bestehende Datenpunkte nicht. Deshalb die Version
+  // bei jedem Skriptstart aktiv veröffentlichen, damit das Hauptskript
+  // Versionsabweichungen zuverlässig erkennt.
+  setState(VERSION_DP, SCRIPT_VERSION, true);
 
   createState(`${BASE_DP}.shellyOffline`, false, {
     name: 'Heizkreispumpe - Shelly offline',
