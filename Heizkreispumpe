@@ -13,6 +13,7 @@ const PUMP_STATUS_DP     = 'shelly.1.shellypro3#ece334ed5048#1.Input0.Status';  
 const SHELLY_ONLINE_DP   = 'shelly.1.shellypro3#ece334ed5048#1.online'; // Shelly online Status
 
 const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
+const SPEICHERLADEPUMPE_STATUS_DP = '0_userdata.0.Heizung.Speicherladepumpe.Status'; // true=AN
 
 const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
 const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
@@ -30,6 +31,8 @@ const MODE_KESSEL        = 'Kesselbetrieb';
 // ===================== STATE ==========================
 let isPulsing = false;
 let lastPulseTs = 0;
+let wwPriorityActive = false;
+let restorePumpAfterWwPriority = false;
 
 // ===================== HELPERS =========================
 function ensureDps() {
@@ -87,9 +90,15 @@ function isShellyOnline() {
   return !!(s && s.val === true);
 }
 
+function isSpeicherladepumpeOn() {
+  const s = getState(SPEICHERLADEPUMPE_STATUS_DP);
+  return !!(s && s.val === true);
+}
+
 /**
  * Berechnet den gewünschten Pumpenzustand:
- * - Support oder Heizstab => true
+ * - Support => true
+ * - Heizstab => true, außer Speicherladepumpe läuft (WW-Vorrang)
  * - Kessel => false
  * - sonst: keine Änderung erzwingen -> bleib wie aktuell
  */
@@ -97,7 +106,13 @@ function computeDesired() {
   const mode = getBetriebsmodus();
   const current = getPumpIsOn();
 
-  if (mode === MODE_SUPPORT || mode === MODE_HEIZSTAB) return true;
+  if (mode === MODE_SUPPORT) return true;
+
+  if (mode === MODE_HEIZSTAB) {
+    // Warmwasser hat Vorrang: Heizkreispumpe aus solange Speicherladepumpe an ist
+    if (isSpeicherladepumpeOn()) return false;
+    return true;
+  }
   if (mode === MODE_KESSEL) return false;
 
   // Unbekannter Modus -> nichts erzwingen
@@ -138,18 +153,72 @@ function setPumpTo(desired, reason) {
   });
 }
 
-function applyDesired(reason) {
-  // Shelly offline -> keine Steuerung möglich
+
+function ensureShellyOnline(reason) {
   if (!isShellyOnline()) {
     setState(`${BASE_DP}.shellyOffline`, true, true);
     logAction(`FEHLER: Shelly offline – Pumpe kann nicht gesteuert werden [${reason}]`);
-    return;
-  } else {
-    if (getState(`${BASE_DP}.shellyOffline`)?.val === true) {
-      setState(`${BASE_DP}.shellyOffline`, false, true);
-      logAction('Shelly wieder online');
-    }
+    return false;
   }
+
+  const offlineState = getState(`${BASE_DP}.shellyOffline`);
+  if (offlineState && offlineState.val === true) {
+    setState(`${BASE_DP}.shellyOffline`, false, true);
+    logAction('Shelly wieder online');
+  }
+
+  return true;
+}
+
+function handleWwPriority(reason, onlyRestoreIfPriorityWasActive = false) {
+  if (!ensureShellyOnline(reason)) return;
+
+  const mode = getBetriebsmodus();
+  const speicherladepumpeOn = isSpeicherladepumpeOn();
+
+  if (mode !== MODE_HEIZSTAB) {
+    wwPriorityActive = false;
+    restorePumpAfterWwPriority = false;
+    applyDesired(reason);
+    return;
+  }
+
+  if (speicherladepumpeOn) {
+    // Nur beim Start des WW-Vorrangs merken, ob die Pumpe vorher an war.
+    // So bleibt ein vorheriger EIN-Zustand erhalten, auch wenn weitere Trigger kommen,
+    // nachdem die Pumpe durch den WW-Vorrang bereits ausgeschaltet wurde.
+    if (!wwPriorityActive) {
+      restorePumpAfterWwPriority = getPumpIsOn();
+      wwPriorityActive = true;
+    }
+
+    setPumpTo(false, `${reason}: Speicherladepumpe EIN`);
+    return;
+  }
+
+  if (!wwPriorityActive) {
+    if (onlyRestoreIfPriorityWasActive) {
+      logAction(`Keine Aktion nötig (Speicherladepumpe AUS, kein vorheriger WW-Vorrang aktiv) [${reason}]`);
+      return;
+    }
+
+    applyDesired(reason);
+    return;
+  }
+
+  const shouldRestore = restorePumpAfterWwPriority;
+  wwPriorityActive = false;
+  restorePumpAfterWwPriority = false;
+
+  if (shouldRestore) {
+    setPumpTo(true, `${reason}: Speicherladepumpe AUS, vorherigen Zustand wiederherstellen`);
+  } else {
+    setPumpTo(false, `${reason}: Speicherladepumpe AUS, Pumpe war vorher AUS`);
+  }
+}
+
+function applyDesired(reason) {
+  if (!ensureShellyOnline(reason)) return;
 
   const desired = computeDesired();
   setPumpTo(desired, reason);
@@ -160,7 +229,8 @@ ensureDps();
 
 setState(STATE_DP, getPumpIsOn(), true);
 
-on({ id: MODE_DP, change: 'ne' }, () => applyDesired('MODE-Wechsel'));
+on({ id: MODE_DP, change: 'ne' }, () => handleWwPriority('MODE-Wechsel'));
+on({ id: SPEICHERLADEPUMPE_STATUS_DP, change: 'ne' }, () => handleWwPriority('WW-Vorrang Speicherladepumpe', true));
 
 on({ id: MANUAL_REQUEST_DP, change: 'ne' }, obj => {
   // Wenn der Wert vom Skript gespiegelt wurde (ack=true), nicht wieder schalten (sonst Toggle-Loop)
@@ -191,5 +261,5 @@ on({ id: PUMP_STATUS_DP, change: 'ne' }, () => {
 // Initialer Lauf
 setTimeout(() => {
   logAction('Start: initiale Auswertung');
-  applyDesired('Start');
+  handleWwPriority('Start');
 }, 1000);
