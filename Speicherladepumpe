@@ -56,6 +56,10 @@ createState(DP_SCRIPT_VERSION, SCRIPT_VERSION, {
     read: true,
     write: false
 });
+// createState aktualisiert bestehende Datenpunkte nicht. Deshalb die Version
+// bei jedem Skriptstart aktiv veröffentlichen, damit das Hauptskript
+// Versionsabweichungen zuverlässig erkennt.
+setState(DP_SCRIPT_VERSION, SCRIPT_VERSION, true);
 
 // =======================
 // Interne Zustände
