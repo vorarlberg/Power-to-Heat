@@ -76,6 +76,7 @@ let istTimer    = null;
 let shellyOfflineTimer = null;
 let shellyOfflineFaultActive = false;
 let overTempActive = false;
+let waitForPufferDeltaAfterEqualized = false;
 
 // =======================
 // Pumpensteuerung

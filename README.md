@@ -6,6 +6,8 @@ Dieses Repository beschreibt eine ioBroker-Automatisierung, die einen **MY-PV AC
 
 > **Wichtiger Hinweis:** Datenpunkte, Grenzwerte und Zeiten sind an die konkrete Anlage angepasst. Vor produktiver Nutzung müssen alle ioBroker-Datenpunkte, Shelly-/Modbus-/MQTT-Pfade, Temperaturfühler und Aktoren geprüft und ggf. im Kopfbereich der Skripte geändert werden.
 
+📘 **Anwender-Wiki:** Eine GitHub-Wiki-taugliche Bedien- und Anlagenbeschreibung ohne Code-Erklärungen liegt in [`WIKI.md`](WIKI.md).
+
 ---
 
 ## 🎯 Ziel des Projekts
@@ -695,7 +697,7 @@ flowchart LR
 | WW-Sicherstellungsleistung | `JavaSkript` → `WW_SICHER.leistungW` |
 | Übertemperaturgrenzen | `JavaSkript` → `LIMITS.uebertempInternDefault` / `uebertempExternDefault` oder Parameter-DPs |
 | Nachtfenster | `JavaSkript` → `QUIET.offlineCheckOffFromHour` / `offlineCheckOffToHour` |
-| Speicherladepumpen-Temperaturen | `Speicherladepumpe` → `ON_BELOW_TEMP`, `OFF_ABOVE_TEMP`, `MAX_OVER_TEMP_ON`, `MAX_OVER_TEMP_OFF` |
+| Speicherladepumpen-Temperaturen | `Speicherladepumpe` → `ON_BELOW_TEMP`, `OFF_ABOVE_TEMP`, `MAX_OVER_TEMP_ON`, `MAX_OVER_TEMP_OFF`, `TEMP_EQUALIZED_DELTA_K`, `TEMP_RESTART_DELTA_K` |
 | Heizkreispumpen-Impulsdauer | `Heizkreispumpe` → `PULSE_MS` |
 | WW-Zirkulationspumpen-Laufzeit | `Warm-water-circulation-pump-control` → `DEFAULT_DURATION_MIN` oder DP `LaufzeitMin` |
 
