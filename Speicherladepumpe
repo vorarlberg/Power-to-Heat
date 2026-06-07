@@ -18,6 +18,9 @@ const DP_PUMP_ERROR    = '0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOff
 
 const DP_WW_ACTUAL    = 'alias.0.Heizung.Speicher_Warmwasser.ACTUAL';
 const DP_PUFFER_TEMP  = 'modbus.2.holdingRegisters.1.1030_Temp_2'; // Pufferspeicher-Temperatur
+const DP_WW_TARGET    = '0_userdata.0.Heizstab.V2.Parameter.WW_Zieltemperatur';
+const DP_HEIZSTAB_AKTIV = '0_userdata.0.Heizstab.V2.Regelung.AKTIV'; // true=Heizstab-Regelung aktiv
+const DP_HEIZSTAB_IST_LEISTUNG = 'modbus.2.holdingRegisters.1.1000_Power'; // echte Heizstab-Leistung
 
 const DP_GPIO17       = '0_userdata.0.System.GPIO.GPIO17';
 const DP_GPIO18       = '0_userdata.0.System.GPIO.GPIO18';
@@ -31,13 +34,13 @@ const DP_PUMP_IST     = '0_userdata.0.Heizung.Speicherladepumpe.Ist'; // boolean
 const DP_PUMP_SOLL_IST_FEHLER = '0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler'; // boolean: Soll/Ist Abweichung (nur wenn nicht überbrückt)
 const DP_SCRIPT_VERSION = '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion';
 
-const SCRIPT_VERSION = '1.1.0';
+const SCRIPT_VERSION = '1.2.1';
 
 // =======================
 // Parameter
 // =======================
-const ON_BELOW_TEMP   = 51;
-const OFF_ABOVE_TEMP  = 55;
+const ON_BELOW_TEMP   = 51; // Fallback-Einschaltgrenze, falls WW-Zieltemperatur nicht lesbar ist
+const OFF_ABOVE_TEMP  = 55; // Fallback-Ziel-/Ausschaltgrenze, falls WW-Zieltemperatur nicht lesbar ist
 const MAX_OVER_TEMP_ON  = 60; // Sicherheitsabschaltung EIN ab dieser Temperatur
 const MAX_OVER_TEMP_OFF = 58; // Sicherheitsfreigabe erst unter dieser Temperatur
 
@@ -46,6 +49,7 @@ const DEBOUNCE_IST_MS     = 500;  // Entprellung Ist-Rückmeldung
 const DEBOUNCE_TEMP_MS   = 10000;
 const GPIO_TEST_DELAY_MS = 500;
 const IST_INVERT          = false; // auf true setzen, falls der Kontakt logisch invertiert ist (z.B. NC)
+const HEIZSTAB_RUNNING_MIN_W = 100; // ab dieser Ist-Leistung gilt der Heizstab als laufend
 
 const SHELLY_OFFLINE_TIMEOUT_MS = 10000;
 
@@ -107,6 +111,22 @@ function isBypassActive() {
 function readPumpIst() {
     const raw = !!getState(DP_SHELLY_IST)?.val;
     return IST_INVERT ? !raw : raw;
+}
+
+function getWwTargetTemp() {
+    const target = Number(getState(DP_WW_TARGET)?.val);
+    return isNaN(target) ? null : target;
+}
+
+function isHeizstabRunning() {
+    const aktiv = getState(DP_HEIZSTAB_AKTIV)?.val === true;
+    const istLeistung = Number(getState(DP_HEIZSTAB_IST_LEISTUNG)?.val);
+
+    if (!isNaN(istLeistung)) {
+        return aktiv && istLeistung >= HEIZSTAB_RUNNING_MIN_W;
+    }
+
+    return aktiv;
 }
 
 function updateSollIst(reason = '') {
@@ -202,23 +222,39 @@ function evaluate() {
         const tPuffer = Number(getState(DP_PUFFER_TEMP)?.val);
         if (isNaN(tWw) || isNaN(tPuffer)) return;
 
-        // Ausschalten weiterhin nur temperaturgeführt (Hysterese)
-        if (tWw > OFF_ABOVE_TEMP) {
+        const zielTemp = getWwTargetTemp();
+        const heizstabRunning = isHeizstabRunning();
+
+        // Fallback auf alte Hysterese, falls die WW-Zieltemperatur nicht lesbar ist.
+        if (zielTemp === null) {
+            if (tWw > OFF_ABOVE_TEMP) {
+                setPump(false);
+                return;
+            }
+
+            if (tWw < ON_BELOW_TEMP) {
+                setPump(tPuffer > tWw);
+                return;
+            }
+
+            return;
+        }
+
+        // Zieltemperatur im Warmwasserspeicher erreicht: Ladepumpe aus.
+        if (tWw >= zielTemp) {
             setPump(false);
             return;
         }
 
-        // Einschalten nur, wenn WW kalt genug ist UND der Puffer tatsächlich wärmer ist als der WW-Speicher
-        if (tWw < ON_BELOW_TEMP) {
-            if (tPuffer > tWw) {
-                setPump(true);
-            } else {
-                setPump(false);
-            }
+        // Heizstab aus und Puffer noch unter Ziel: Zieltemperatur kann nicht erreicht werden, daher keine Speicherladung.
+        if (!heizstabRunning && tPuffer < zielTemp) {
+            setPump(false);
             return;
         }
 
-        // Zwischen ON_BELOW_TEMP und OFF_ABOVE_TEMP: Zustand beibehalten
+        // Solange die Zieltemperatur noch nicht erreicht ist und sie erreichbar bleibt, Speicherladepumpe laufen lassen.
+        // Das gilt auch, wenn der Heizstab läuft und der Puffer selbst noch unter der Zieltemperatur liegt.
+        setPump(true);
         return;
     }
 
@@ -267,10 +303,16 @@ on({ id: DP_SHELLY_ONLINE, change: 'ne' }, obj => {
     }, SHELLY_OFFLINE_TIMEOUT_MS);
 });
 
-on({ id: DP_WW_ACTUAL, change: 'ne' }, () => {
+function scheduleTempEvaluate() {
     if (tempTimer) clearTimeout(tempTimer);
     tempTimer = setTimeout(evaluate, DEBOUNCE_TEMP_MS);
-});
+}
+
+on({ id: DP_WW_ACTUAL, change: 'ne' }, scheduleTempEvaluate);
+on({ id: DP_PUFFER_TEMP, change: 'ne' }, scheduleTempEvaluate);
+on({ id: DP_WW_TARGET, change: 'ne' }, scheduleTempEvaluate);
+on({ id: DP_HEIZSTAB_AKTIV, change: 'ne' }, evaluate);
+on({ id: DP_HEIZSTAB_IST_LEISTUNG, change: 'ne' }, scheduleTempEvaluate);
 
 on({ id: DP_PUMP_MANUAL_MODE, change: 'ne' }, () => {
     evaluate();

@@ -87,7 +87,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.1.0` und WW-Pumpe `1.1.0` melden. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.2.1` und WW-Pumpe `1.1.0` melden. |
 | `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
@@ -364,7 +364,7 @@ Dieses Skript steuert die Speicherladepumpe. Die Ausgabe erfolgt über zwei GPIO
 | `GPIO17` | `true` | `false` |
 | `GPIO18` | `false` | `true` |
 
-Das Skript veröffentlicht seine Version `1.1.0` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
+Das Skript veröffentlicht seine Version `1.2.1` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
 
 ### Wichtige Datenpunkte
 
@@ -375,7 +375,10 @@ Das Skript veröffentlicht seine Version `1.1.0` unter `0_userdata.0.Heizung.Spe
 | `shelly...Input3.Status` | Eingang | Ist-Rückmeldung vom Schütz. |
 | `shelly...online` | Eingang | Shelly-Online-Status. |
 | `alias.0.Heizung.Speicher_Warmwasser.ACTUAL` | Eingang | Warmwasser-Isttemperatur. |
-| `modbus.2...1030_Temp_2` | Eingang | Pufferspeicher-Temperatur. |
+| `modbus.2.holdingRegisters.1.1030_Temp_2` | Eingang | Pufferspeicher-Isttemperatur. |
+| `0_userdata.0.Heizstab.V2.Parameter.WW_Zieltemperatur` | Eingang | Zieltemperatur für den Warmwasserspeicher. |
+| `0_userdata.0.Heizstab.V2.Regelung.AKTIV` | Eingang | Heizstab-Regelung aktiv. |
+| `modbus.2.holdingRegisters.1.1000_Power` | Eingang | echte Heizstab-Istleistung zur Erkennung, ob der Heizstab läuft. |
 | `0_userdata.0.Heizung.Speicherladepumpe.Status` | Ausgabe | Soll-/Skriptzustand der Pumpe. |
 | `0_userdata.0.Heizung.Speicherladepumpe.Ist` | Ausgabe | entprellter rückgemeldeter Istzustand. |
 | `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | Ausgabe | `true`, wenn Soll und Ist abweichen und kein Bypass aktiv ist. |
@@ -387,8 +390,8 @@ Das Skript veröffentlicht seine Version `1.1.0` unter `0_userdata.0.Heizung.Spe
 
 | Parameter | Wert | Wirkung |
 | --- | --- | --- |
-| `ON_BELOW_TEMP` | `51 °C` | Im Heizstabbetrieb Einschaltgrenze für WW, wenn Puffer wärmer als WW ist. |
-| `OFF_ABOVE_TEMP` | `55 °C` | Im Heizstabbetrieb Ausschaltgrenze der Pumpe. |
+| `ON_BELOW_TEMP` | `51 °C` | Fallback-Einschaltgrenze, falls die WW-Zieltemperatur nicht lesbar ist. |
+| `OFF_ABOVE_TEMP` | `55 °C` | Fallback-Ziel-/Ausschaltgrenze, falls die WW-Zieltemperatur nicht lesbar ist. |
 | `MAX_OVER_TEMP_ON` | `60 °C` | Sicherheitsabschaltung ab dieser WW-Temperatur, auch bei Manual ON. |
 | `MAX_OVER_TEMP_OFF` | `58 °C` | Freigabe der Sicherheitsabschaltung erst wieder darunter. |
 | `DEBOUNCE_SHELLY_MS` | `1000 ms` | Entprellung der externen Freigabe. |
@@ -397,6 +400,7 @@ Das Skript veröffentlicht seine Version `1.1.0` unter `0_userdata.0.Heizung.Spe
 | `GPIO_TEST_DELAY_MS` | `500 ms` | Umschaltzeit für GPIO-Test beim Start. |
 | `SHELLY_OFFLINE_TIMEOUT_MS` | `10000 ms` | Shelly muss so lange offline sein, bevor Fehler aktiv wird. |
 | `IST_INVERT` | `false` | Bei `true` wird die Ist-Rückmeldung logisch invertiert. |
+| `HEIZSTAB_RUNNING_MIN_W` | `100 W` | Mindest-Istleistung, ab der ein aktiver Heizstab als laufend gewertet wird. |
 
 ### Entscheidungslogik
 
@@ -423,15 +427,17 @@ Die Reihenfolge ist wichtig:
 
 ### Temperaturgeführte Speicherladung im Heizstabbetrieb
 
-Im Modus `Heizstabbetrieb` gilt:
+Im Modus `Heizstabbetrieb` wird die einstellbare Warmwasser-Zieltemperatur aus `0_userdata.0.Heizstab.V2.Parameter.WW_Zieltemperatur` verwendet. Die festen Werte `ON_BELOW_TEMP` und `OFF_ABOVE_TEMP` dienen nur noch als Fallback, falls dieser Zieltemperatur-DP nicht lesbar ist.
 
 ```text
-AUS, wenn Warmwasser > 55 °C
-EIN, wenn Warmwasser < 51 °C UND Puffer wärmer als Warmwasser
-Zwischen 51 °C und 55 °C: aktuellen Pumpenzustand beibehalten
+AUS, wenn Warmwasser-Isttemperatur >= WW-Zieltemperatur
+AUS, wenn Heizstab aus ist UND Puffer-Isttemperatur < WW-Zieltemperatur
+EIN, solange Warmwasser-Isttemperatur < WW-Zieltemperatur UND die Zieltemperatur erreichbar ist:
+  - Heizstab läuft, auch wenn die Puffer-Isttemperatur noch unter der WW-Zieltemperatur liegt
+  - oder Heizstab ist aus, aber Puffer-Isttemperatur liegt bereits mindestens auf WW-Zieltemperatur
 ```
 
-Dadurch wird verhindert, dass die Speicherladepumpe Wärme aus einem kälteren Puffer in den Warmwasserspeicher zieht.
+Dadurch wird verhindert, dass die Speicherladepumpe bei ausgeschaltetem Heizstab Wärme aus einem zu kalten Puffer in den Warmwasserspeicher zieht. Läuft der Heizstab, bleibt die Pumpe dagegen auch bei noch zu kaltem Puffer eingeschaltet, bis die Warmwasser-Zieltemperatur erreicht ist oder der Heizstab abschaltet und die Zieltemperatur dadurch nicht mehr erreichbar ist.
 
 ### Soll-/Ist-Überwachung
 
