@@ -154,7 +154,7 @@ function updateSollIst(reason = '') {
 
     if (mismatch) {
         const r = reason ? ` (${reason})` : '';
-        log(`[Pumpe] Soll/Ist-Abweichung${r}: SOLL=${pumpIsOn ? 'EIN' : 'AUS'} / IST=${ist ? 'EIN' : 'AUS'} (DP=${DP_SHELLY_IST}, invert=${IST_INVERT})`, 'warn');
+        log(`[Pumpe] Soll/Ist-Abweichung${r}: SOLL=${pumpIsOn ? 'EIN' : 'AUS'} / IST=${ist ? 'EIN' : 'AUS'} (DP=${DP_SHELLY_IST}, invert=${IST_INVERT})`, 'error');
     }
 }
 
