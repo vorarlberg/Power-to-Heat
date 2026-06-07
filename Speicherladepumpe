@@ -34,7 +34,7 @@ const DP_PUMP_IST     = '0_userdata.0.Heizung.Speicherladepumpe.Ist'; // boolean
 const DP_PUMP_SOLL_IST_FEHLER = '0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler'; // boolean: Soll/Ist Abweichung (nur wenn nicht überbrückt)
 const DP_SCRIPT_VERSION = '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion';
 
-const SCRIPT_VERSION = '1.2.0';
+const SCRIPT_VERSION = '1.2.1';
 
 // =======================
 // Parameter
@@ -49,8 +49,6 @@ const DEBOUNCE_IST_MS     = 500;  // Entprellung Ist-Rückmeldung
 const DEBOUNCE_TEMP_MS   = 10000;
 const GPIO_TEST_DELAY_MS = 500;
 const IST_INVERT          = false; // auf true setzen, falls der Kontakt logisch invertiert ist (z.B. NC)
-const TEMP_EQUALIZED_DELTA_K = 0.5; // Temperaturen gelten bis zu dieser Differenz als angeglichen
-const TEMP_RESTART_DELTA_K = 10; // nach Temperaturangleich erst ab größerer Differenz wieder einschalten
 const HEIZSTAB_RUNNING_MIN_W = 100; // ab dieser Ist-Leistung gilt der Heizstab als laufend
 
 const SHELLY_OFFLINE_TIMEOUT_MS = 10000;
@@ -226,13 +224,11 @@ function evaluate() {
         if (isNaN(tWw) || isNaN(tPuffer)) return;
 
         const zielTemp = getWwTargetTemp();
-        const pufferDelta = tPuffer - tWw;
         const heizstabRunning = isHeizstabRunning();
 
         // Fallback auf alte Hysterese, falls die WW-Zieltemperatur nicht lesbar ist.
         if (zielTemp === null) {
             if (tWw > OFF_ABOVE_TEMP) {
-                waitForPufferDeltaAfterEqualized = false;
                 setPump(false);
                 return;
             }
@@ -245,46 +241,21 @@ function evaluate() {
             return;
         }
 
-        // Zieltemperatur im Warmwasserspeicher erreicht: Ladepumpe aus und Angleich-Sperre zurücksetzen.
+        // Zieltemperatur im Warmwasserspeicher erreicht: Ladepumpe aus.
         if (tWw >= zielTemp) {
-            waitForPufferDeltaAfterEqualized = false;
             setPump(false);
             return;
         }
 
-        // Nach Temperaturangleich erst wieder laden, wenn der Puffer mehr als TEMP_RESTART_DELTA_K wärmer ist.
-        if (waitForPufferDeltaAfterEqualized) {
-            if (pufferDelta > TEMP_RESTART_DELTA_K) {
-                waitForPufferDeltaAfterEqualized = false;
-            } else {
-                setPump(false);
-                return;
-            }
-        }
-
-        // Heizstab aus und Puffer noch unter Ziel: keine Speicherladung starten.
+        // Heizstab aus und Puffer noch unter Ziel: Zieltemperatur kann nicht erreicht werden, daher keine Speicherladung.
         if (!heizstabRunning && tPuffer < zielTemp) {
             setPump(false);
             return;
         }
 
-        // Heizstab läuft, aber Puffer ist noch unter Ziel: nur bis zum Temperaturangleich umladen.
-        if (heizstabRunning && tPuffer < zielTemp) {
-            if (pufferDelta > TEMP_EQUALIZED_DELTA_K) {
-                setPump(true);
-            } else {
-                waitForPufferDeltaAfterEqualized = true;
-                setPump(false);
-            }
-            return;
-        }
-
-        // Puffer ist warm genug: laden, solange er wärmer als der WW-Speicher ist.
-        if (tPuffer > tWw + TEMP_EQUALIZED_DELTA_K) {
-            setPump(true);
-        } else {
-            setPump(false);
-        }
+        // Solange die Zieltemperatur noch nicht erreicht ist und sie erreichbar bleibt, Speicherladepumpe laufen lassen.
+        // Das gilt auch, wenn der Heizstab läuft und der Puffer selbst noch unter der Zieltemperatur liegt.
+        setPump(true);
         return;
     }
 
