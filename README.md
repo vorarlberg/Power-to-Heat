@@ -6,6 +6,8 @@ Dieses Repository beschreibt eine ioBroker-Automatisierung, die einen **MY-PV AC
 
 > **Wichtiger Hinweis:** Datenpunkte, Grenzwerte und Zeiten sind an die konkrete Anlage angepasst. Vor produktiver Nutzung müssen alle ioBroker-Datenpunkte, Shelly-/Modbus-/MQTT-Pfade, Temperaturfühler und Aktoren geprüft und ggf. im Kopfbereich der Skripte geändert werden.
 
+📘 **Anwender-Wiki:** Eine GitHub-Wiki-taugliche Bedien- und Anlagenbeschreibung ohne Code-Erklärungen liegt in [`WIKI.md`](WIKI.md).
+
 ---
 
 ## 🎯 Ziel des Projekts
