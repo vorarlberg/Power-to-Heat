@@ -23,7 +23,7 @@ const PUMP_SCRIPT_CHECK = {
     intervalMs: 300000,
     scripts: [
         { name: 'Heizkreispumpe', dp: '0_userdata.0.Heizung.Heizkreispumpe.scriptVersion', expected: '1.2.0' },
-        { name: 'Speicherladepumpe', dp: '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion', expected: '1.2.1' },
+        { name: 'Speicherladepumpe', dp: '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion', expected: '1.2.3' },
         { name: 'WW-Pumpe', dp: '0_userdata.0.Heizung.WW-Pumpe.ScriptVersion', expected: '1.1.0' }
     ]
 };
