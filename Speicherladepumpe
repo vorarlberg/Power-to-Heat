@@ -84,7 +84,8 @@ let waitForPufferDeltaAfterEqualized = false;
 // =======================
 // Pumpensteuerung
 // =======================
-function setPump(on) {
+function setPump(on, reason = '') {
+    if (reason) setState(DP_PUMP_LAST_REASON, reason, true);
     if (pumpIsOn === on) return;
 
     if (on) {
@@ -207,7 +208,7 @@ function evaluate() {
     // Schlüssel-Überbrückung: Pumpe wird extern (Kessel) angesteuert.
     // Skript setzt dann seinen Soll-Zustand auf AUS (GPIO sicher) und bewertet keine Soll/Ist-Abweichung.
     if (isBypassActive()) {
-        setPump(false);
+        setPump(false, 'Bypass aktiv – GPIO sicher AUS');
         updateSollIst('bypass');
         return;
     }
@@ -216,11 +217,11 @@ function evaluate() {
 
     // Manueller Modus hat Vorrang vor Automatik
     if (manualMode === 'ON') {
-        setPump(true);
+        setPump(true, 'ManualMode ON');
         return;
     }
     if (manualMode === 'OFF') {
-        setPump(false);
+        setPump(false, 'ManualMode OFF');
         return;
     }
     // manualMode === 'AUTO' -> weiter mit Automatik
@@ -228,7 +229,7 @@ function evaluate() {
     // Sicherheits-/Störfall: Shelly länger offline -> Fehler setzen und (nur im AUTO) Pumpe erzwingen AUS
     if (shellyOfflineFaultActive) {
         setState(DP_PUMP_ERROR, true, true);
-        setPump(false);
+        setPump(false, 'Shelly länger offline – AUTO sicher AUS');
         return;
     }
 
@@ -236,12 +237,12 @@ function evaluate() {
 
     if (mode === 'Kesselbetrieb') {
         // Im Kesselbetrieb wie im Unterstützungsbetrieb: externe Freigabe vom Kessel/Logik durchreichen
-        setPump(!!getState(DP_SHELLY_INPUT)?.val);
+        setPump(!!getState(DP_SHELLY_INPUT)?.val, 'Externe Kessel-/Logikfreigabe');
         return;
     }
 
     if (mode === 'Unterstützungsbetrieb') {
-        setPump(!!getState(DP_SHELLY_INPUT)?.val);
+        setPump(!!getState(DP_SHELLY_INPUT)?.val, 'Externe Kessel-/Logikfreigabe');
         return;
     }
 
@@ -259,12 +260,12 @@ function evaluate() {
         // Fallback auf alte Hysterese, falls die WW-Zieltemperatur nicht lesbar ist.
         if (zielTemp === null) {
             if (tWw > OFF_ABOVE_TEMP) {
-                setPump(false);
+                setPump(false, 'Fallback-Hysterese: WW über Ausschaltgrenze');
                 return;
             }
 
             if (tWw < ON_BELOW_TEMP) {
-                setPump(tPuffer > tWw);
+                setPump(tPuffer > tWw, 'Fallback-Hysterese: Puffer wärmer als WW');
                 return;
             }
 
@@ -273,23 +274,23 @@ function evaluate() {
 
         // Zieltemperatur im Warmwasserspeicher erreicht: Ladepumpe aus.
         if (tWw >= zielTemp) {
-            setPump(false);
+            setPump(false, 'WW-Zieltemperatur erreicht');
             return;
         }
 
         // Heizstab aus und Puffer noch unter Ziel: Zieltemperatur kann nicht erreicht werden, daher keine Speicherladung.
         if (!heizstabRunning && tPuffer < zielTemp) {
-            setPump(false);
+            setPump(false, 'Heizstab aus und Puffer unter Zieltemperatur');
             return;
         }
 
         // Solange die Zieltemperatur noch nicht erreicht ist und sie erreichbar bleibt, Speicherladepumpe laufen lassen.
         // Das gilt auch, wenn der Heizstab läuft und der Puffer selbst noch unter der Zieltemperatur liegt.
-        setPump(true);
+        setPump(true, 'Heizstabbetrieb: WW-Ziel noch nicht erreicht');
         return;
     }
 
-    setPump(false);
+    setPump(false, 'Unbekannter Betriebsmodus – Pumpe AUS');
     updateSollIst('evaluate');
 }
 
