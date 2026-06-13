@@ -200,7 +200,6 @@ Wichtige Anzeigen:
 | `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | `true`, wenn Soll und Ist nicht zusammenpassen und kein Bypass aktiv ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline` | `true`, wenn der Shelly länger als 10 s offline ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv` | `true`, wenn Übertemperatur oder ein ungültiger WW-Fühler die Pumpe fail-safe ausgeschaltet hat. |
-| `0_userdata.0.Heizung.Speicherladepumpe.LetzterSchaltgrund` | Diagnose des letzten Schalt- oder Sicherheitsgrundes. |
 
 Verhalten:
 

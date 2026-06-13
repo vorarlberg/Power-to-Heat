@@ -89,7 +89,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.2.2` und WW-Pumpe `1.1.0` melden. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.2.4` und WW-Pumpe `1.1.0` melden. |
 | `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
@@ -366,7 +366,7 @@ Dieses Skript steuert die Speicherladepumpe. Die Ausgabe erfolgt über zwei GPIO
 | `GPIO17` | `true` | `false` |
 | `GPIO18` | `false` | `true` |
 
-Das Skript veröffentlicht seine Version `1.2.2` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
+Das Skript veröffentlicht seine Version `1.2.4` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
 
 ### Wichtige Datenpunkte
 
@@ -386,7 +386,6 @@ Das Skript veröffentlicht seine Version `1.2.2` unter `0_userdata.0.Heizung.Spe
 | `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | Ausgabe | `true`, wenn Soll und Ist abweichen und kein Bypass aktiv ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline` | Ausgabe | `true`, wenn der Shelly länger offline ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv` | Ausgabe | `true`, wenn Übertemperatur oder ein ungültiger WW-Fühler die Pumpe fail-safe ausgeschaltet hat. |
-| `0_userdata.0.Heizung.Speicherladepumpe.LetzterSchaltgrund` | Ausgabe | Diagnose des letzten Schalt- oder Sicherheitsgrundes. |
 | `0_userdata.0.Heizung.Speicherladepumpe.ManualMode` | Eingabe | `AUTO`, `ON` oder `OFF`. |
 | `shelly...RGB0.Switch` | Eingang/Schalter | Bypass/Überbrückung: Pumpe wird vom Kessel angesteuert. |
 
