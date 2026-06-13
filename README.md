@@ -89,7 +89,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.2.1` und WW-Pumpe `1.1.0` melden. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.2.4` und WW-Pumpe `1.1.0` melden. |
 | `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
@@ -366,7 +366,7 @@ Dieses Skript steuert die Speicherladepumpe. Die Ausgabe erfolgt über zwei GPIO
 | `GPIO17` | `true` | `false` |
 | `GPIO18` | `false` | `true` |
 
-Das Skript veröffentlicht seine Version `1.2.1` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
+Das Skript veröffentlicht seine Version `1.2.4` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
 
 ### Wichtige Datenpunkte
 
@@ -385,6 +385,7 @@ Das Skript veröffentlicht seine Version `1.2.1` unter `0_userdata.0.Heizung.Spe
 | `0_userdata.0.Heizung.Speicherladepumpe.Ist` | Ausgabe | entprellter rückgemeldeter Istzustand. |
 | `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | Ausgabe | `true`, wenn Soll und Ist abweichen und kein Bypass aktiv ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline` | Ausgabe | `true`, wenn der Shelly länger offline ist. |
+| `0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv` | Ausgabe | `true`, wenn Übertemperatur oder ein ungültiger WW-Fühler die Pumpe fail-safe ausgeschaltet hat. |
 | `0_userdata.0.Heizung.Speicherladepumpe.ManualMode` | Eingabe | `AUTO`, `ON` oder `OFF`. |
 | `shelly...RGB0.Switch` | Eingang/Schalter | Bypass/Überbrückung: Pumpe wird vom Kessel angesteuert. |
 
@@ -396,6 +397,8 @@ Das Skript veröffentlicht seine Version `1.2.1` unter `0_userdata.0.Heizung.Spe
 | `OFF_ABOVE_TEMP` | `55 °C` | Fallback-Ziel-/Ausschaltgrenze, falls die WW-Zieltemperatur nicht lesbar ist. |
 | `MAX_OVER_TEMP_ON` | `60 °C` | Sicherheitsabschaltung ab dieser WW-Temperatur, auch bei Manual ON. |
 | `MAX_OVER_TEMP_OFF` | `58 °C` | Freigabe der Sicherheitsabschaltung erst wieder darunter. |
+| `WW_TEMP_VALID_MIN` | `0 °C` | Untere Plausibilitätsgrenze für den WW-Fühler; außerhalb fail-safe AUS. |
+| `WW_TEMP_VALID_MAX` | `95 °C` | Obere Plausibilitätsgrenze für den WW-Fühler; außerhalb fail-safe AUS. |
 | `DEBOUNCE_SHELLY_MS` | `1000 ms` | Entprellung der externen Freigabe. |
 | `DEBOUNCE_IST_MS` | `500 ms` | Entprellung der Ist-Rückmeldung. |
 | `DEBOUNCE_TEMP_MS` | `10000 ms` | Entprellung von Temperaturänderungen. |
@@ -412,6 +415,8 @@ Die Reihenfolge ist wichtig:
    - Ab `60 °C` WW-Isttemperatur wird die Pumpe ausgeschaltet.
    - Freigabe erst wieder bei `<= 58 °C`.
    - Diese Abschaltung hat auch Vorrang vor `ManualMode = ON`.
+   - Wenn der WW-Fühler ungültig/nicht plausibel ist, wird ebenfalls fail-safe ausgeschaltet, damit kein alter EIN-Zustand weiterläuft.
+   - Änderungen am WW-Fühler werden ohne die allgemeine 10-s-Temperaturentprellung geprüft.
 2. **Bypass/Überbrückung**
    - Wenn der Schlüsselschalter/Bypass aktiv ist, setzt das Skript seine GPIO-Ausgänge sicher auf AUS.
    - Soll-/Ist-Abweichungen werden in diesem Zustand nicht bewertet, weil der Kessel direkt steuert.
@@ -697,7 +702,7 @@ flowchart LR
 | WW-Sicherstellungsleistung | `JavaSkript` → `WW_SICHER.leistungW` |
 | Übertemperaturgrenzen | `JavaSkript` → `LIMITS.uebertempInternDefault` / `uebertempExternDefault` oder Parameter-DPs |
 | Nachtfenster | `JavaSkript` → `QUIET.offlineCheckOffFromHour` / `offlineCheckOffToHour` |
-| Speicherladepumpen-Temperaturen | `Speicherladepumpe` → `ON_BELOW_TEMP`, `OFF_ABOVE_TEMP`, `MAX_OVER_TEMP_ON`, `MAX_OVER_TEMP_OFF`, `TEMP_EQUALIZED_DELTA_K`, `TEMP_RESTART_DELTA_K` |
+| Speicherladepumpen-Temperaturen | `Speicherladepumpe` → `ON_BELOW_TEMP`, `OFF_ABOVE_TEMP`, `MAX_OVER_TEMP_ON`, `MAX_OVER_TEMP_OFF`, `WW_TEMP_VALID_MIN`, `WW_TEMP_VALID_MAX` |
 | Heizkreispumpen-Impulsdauer | `Heizkreispumpe` → `PULSE_MS` |
 | WW-Zirkulationspumpen-Laufzeit | `Warm-water-circulation-pump-control` → `DEFAULT_DURATION_MIN` oder DP `LaufzeitMin` |
 

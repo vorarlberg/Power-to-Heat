@@ -199,15 +199,16 @@ Wichtige Anzeigen:
 | `0_userdata.0.Heizung.Speicherladepumpe.Ist` | Rückgemeldeter Istzustand vom Schütz. |
 | `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | `true`, wenn Soll und Ist nicht zusammenpassen und kein Bypass aktiv ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline` | `true`, wenn der Shelly länger als 10 s offline ist. |
+| `0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv` | `true`, wenn Übertemperatur oder ein ungültiger WW-Fühler die Pumpe fail-safe ausgeschaltet hat. |
 
 Verhalten:
 
 - Bei Warmwasser-Isttemperatur ab 60 °C schaltet die Pumpe aus.
 - Freigabe nach dieser Sicherheitsabschaltung erst wieder bei 58 °C oder darunter.
+- Wenn der Warmwasserfühler ungültig oder nicht plausibel ist, schaltet die Pumpe fail-safe aus, damit kein vorheriger EIN-Zustand weiterläuft.
 - Im `Kesselbetrieb` und `Unterstützungsbetrieb` folgt sie der externen Kessel-/Logikfreigabe.
 - Im `Heizstabbetrieb` arbeitet sie temperaturgeführt.
-- Wenn der Puffer nicht wärmer als Warmwasser ist, wird nicht unnötig umgeladen.
-- Nach Temperaturangleich wartet die Pumpe, bis der Puffer wieder mehr als 10 K wärmer als Warmwasser ist.
+- Wenn der Heizstab aus ist und der Puffer die Zieltemperatur nicht erreichen kann, wird nicht unnötig umgeladen.
 
 ### Heizkreispumpe
 
