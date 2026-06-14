@@ -33,19 +33,19 @@ const DP_PUMP_BYPASS  = 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch'; 
 const DP_PUMP_IST     = '0_userdata.0.Heizung.Speicherladepumpe.Ist'; // boolean: rückgemeldeter Pumpenzustand (Schütz)
 const DP_PUMP_SOLL_IST_FEHLER = '0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler'; // boolean: Soll/Ist Abweichung (nur wenn nicht überbrückt)
 const DP_PUMP_SAFETY_ACTIVE = '0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv'; // boolean: Sicherheits-/Sensor-Fail-Safe aktiv
-const DP_PUMP_SAFETY_ON_TEMP = '0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungEin'; // number °C: Abschaltung ab dieser WW-Temperatur
-const DP_PUMP_SAFETY_OFF_TEMP = '0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungAus'; // number °C: Freigabe ab/unter dieser WW-Temperatur
+const DP_PUMP_LAST_REASON = '0_userdata.0.Heizung.Speicherladepumpe.LetzterSchaltgrund'; // string: letzter Schalt-/Auswertungsgrund
+const DP_PUMP_SAFETY_TEMP = '0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungEin'; // number °C: Abschaltung ab dieser WW-Temperatur, Reset automatisch 2 K darunter
 const DP_SCRIPT_VERSION = '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion';
 
-const SCRIPT_VERSION = '1.2.5';
+const SCRIPT_VERSION = '1.2.6';
 
 // =======================
 // Parameter
 // =======================
 const ON_BELOW_TEMP   = 51; // Fallback-Einschaltgrenze, falls WW-Zieltemperatur nicht lesbar ist
 const OFF_ABOVE_TEMP  = 55; // Fallback-Ziel-/Ausschaltgrenze, falls WW-Zieltemperatur nicht lesbar ist
-const MAX_OVER_TEMP_ON_DEFAULT  = 60; // Default: Sicherheitsabschaltung EIN ab dieser Temperatur
-const MAX_OVER_TEMP_OFF_DEFAULT = 58; // Default: Sicherheitsfreigabe erst ab/unter dieser Temperatur
+const MAX_OVER_TEMP_DEFAULT = 60; // Default: Sicherheitsabschaltung ab dieser Temperatur
+const SAFETY_RESET_HYSTERESIS_K = 2; // Sicherheitsabschaltung resetet automatisch 2 K unter Abschalttemperatur
 const WW_TEMP_VALID_MIN = 0; // darunter gilt der WW-Fühler als ungültig -> Fail-Safe AUS
 const WW_TEMP_VALID_MAX = 95; // darüber gilt der WW-Fühler als ungültig -> Fail-Safe AUS
 
@@ -140,11 +140,8 @@ function getNumberStateOrDefault(dp, defaultValue) {
 }
 
 function getSafetyTemperatures() {
-    const onTemp = getNumberStateOrDefault(DP_PUMP_SAFETY_ON_TEMP, MAX_OVER_TEMP_ON_DEFAULT);
-    let offTemp = getNumberStateOrDefault(DP_PUMP_SAFETY_OFF_TEMP, MAX_OVER_TEMP_OFF_DEFAULT);
-
-    // Hysterese erzwingen: Freigabe muss unter der Abschalttemperatur liegen.
-    if (offTemp >= onTemp) offTemp = onTemp - 1;
+    const onTemp = getNumberStateOrDefault(DP_PUMP_SAFETY_TEMP, MAX_OVER_TEMP_DEFAULT);
+    const offTemp = onTemp - SAFETY_RESET_HYSTERESIS_K;
 
     return { onTemp, offTemp };
 }
@@ -244,6 +241,13 @@ function evaluate() {
         return;
     }
     // manualMode === 'AUTO' -> weiter mit Automatik
+    // In AUTO begrenzt weiterhin die WW-Zieltemperatur. Nur ManualMode ON darf
+    // bis zur Sicherheitsabschaltung laden.
+    const autoTargetTemp = getWwTargetTemp();
+    if (autoTargetTemp !== null && wwSafety.value >= autoTargetTemp) {
+        setPump(false, 'AUTO: WW-Zieltemperatur erreicht');
+        return;
+    }
 
     // Sicherheits-/Störfall: Shelly länger offline -> Fehler setzen und (nur im AUTO) Pumpe erzwingen AUS
     if (shellyOfflineFaultActive) {
@@ -363,8 +367,7 @@ function scheduleTempEvaluate() {
 on({ id: DP_WW_ACTUAL, change: 'ne' }, evaluate);
 on({ id: DP_PUFFER_TEMP, change: 'ne' }, scheduleTempEvaluate);
 on({ id: DP_WW_TARGET, change: 'ne' }, scheduleTempEvaluate);
-on({ id: DP_PUMP_SAFETY_ON_TEMP, change: 'ne' }, evaluate);
-on({ id: DP_PUMP_SAFETY_OFF_TEMP, change: 'ne' }, evaluate);
+on({ id: DP_PUMP_SAFETY_TEMP, change: 'ne' }, evaluate);
 on({ id: DP_HEIZSTAB_AKTIV, change: 'ne' }, evaluate);
 on({ id: DP_HEIZSTAB_IST_LEISTUNG, change: 'ne' }, scheduleTempEvaluate);
 
@@ -441,8 +444,16 @@ function startupGpioTest() {
         write: false
     });
 
-    createState(DP_PUMP_SAFETY_ON_TEMP, MAX_OVER_TEMP_ON_DEFAULT, {
-        name: 'Speicherladepumpe Sicherheitsabschaltung EIN ab WW-Temperatur',
+    createState(DP_PUMP_LAST_REASON, '', {
+        name: 'Speicherladepumpe letzter Schaltgrund',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: false
+    });
+
+    createState(DP_PUMP_SAFETY_TEMP, MAX_OVER_TEMP_DEFAULT, {
+        name: 'Speicherladepumpe Sicherheitsabschaltung ab WW-Temperatur',
         type: 'number',
         role: 'value.temperature',
         unit: '°C',
@@ -452,16 +463,6 @@ function startupGpioTest() {
         write: true
     });
 
-    createState(DP_PUMP_SAFETY_OFF_TEMP, MAX_OVER_TEMP_OFF_DEFAULT, {
-        name: 'Speicherladepumpe Sicherheitsabschaltung AUS/Freigabe ab WW-Temperatur',
-        type: 'number',
-        role: 'value.temperature',
-        unit: '°C',
-        min: 20,
-        max: 89,
-        read: true,
-        write: true
-    });
 
     createState(DP_PUMP_BYPASS, false, {
         name: 'Speicherladepumpe Überbrückung (Schlüsselschalter)',
@@ -490,6 +491,7 @@ function startupGpioTest() {
     setState(DP_PUMP_ERROR, false, true);
     setState(DP_PUMP_IST, readPumpIst(), true);
     setState(DP_PUMP_SOLL_IST_FEHLER, false, true);
+    setState(DP_PUMP_LAST_REASON, '', true);
     // DP_PUMP_SAFETY_ACTIVE nicht direkt nach createState setzen:
     // ioBroker legt neue States asynchron an und würde beim ersten Start sonst "state not found" warnen.
     // Der Initialwert kommt aus createState; spätere evaluate()-Aufrufe aktualisieren ihn.
