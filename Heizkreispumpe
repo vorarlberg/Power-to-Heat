@@ -14,9 +14,10 @@ const SHELLY_ONLINE_DP   = 'shelly.1.shellypro3#ece334ed5048#1.online'; // Shell
 
 const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
 const SPEICHERLADEPUMPE_STATUS_DP = '0_userdata.0.Heizung.Speicherladepumpe.Status'; // true=AN
+const SPEICHERLADEPUMPE_MANUAL_MODE_DP = '0_userdata.0.Heizung.Speicherladepumpe.ManualMode'; // AUTO|ON|OFF
 
 const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
-const SCRIPT_VERSION    = '1.2.0';
+const SCRIPT_VERSION    = '1.2.1';
 const VERSION_DP        = `${BASE_DP}.scriptVersion`;
 
 const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
@@ -27,6 +28,7 @@ const SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP = `${BASE_DP}.speicherladepumpePriori
 
 const PULSE_MS           = 900;   // < 1 Sekunde (sicher unter 1000ms)
 const MIN_GAP_MS         = 1500;  // Mindestabstand zwischen Impulsen (Schutz vor Prellen/Loops)
+const SPEICHERLADEPUMPE_PRIORITY_MANUAL_MODE = 'AUTO'; // WW-Vorrang nur bei Automatik der Speicherladepumpe
 
 // Betriebsmodus-Strings (ggf. an deine exakten Texte anpassen)
 const MODE_SUPPORT       = 'Unterstützungsbetrieb';
@@ -128,6 +130,10 @@ function isShellyOnline() {
  * - Kessel => false
  * - sonst: keine Änderung erzwingen -> bleib wie aktuell
  */
+function isSpeicherladepumpePriorityAllowed() {
+  return String(getState(SPEICHERLADEPUMPE_MANUAL_MODE_DP)?.val ?? 'AUTO').toUpperCase() === SPEICHERLADEPUMPE_PRIORITY_MANUAL_MODE;
+}
+
 function computeDesired() {
   const mode = getBetriebsmodus();
   const current = getPumpIsOn();
@@ -136,8 +142,9 @@ function computeDesired() {
 
   if (mode === MODE_HEIZSTAB) {
     const speicherladepumpeOn = !!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val;
-    // Warmwasser hat Vorrang: Heizkreispumpe aus solange Speicherladepumpe an ist
-    return !speicherladepumpeOn;
+    // Warmwasser hat Vorrang nur im AUTO-Betrieb der Speicherladepumpe.
+    // Manuelles EIN/AUS der Speicherladepumpe darf die Heizkreispumpe nicht umschalten.
+    return !(speicherladepumpeOn && isSpeicherladepumpePriorityAllowed());
   }
   if (mode === MODE_KESSEL) return false;
 
@@ -210,8 +217,9 @@ function endSpeicherladepumpePriority(reason) {
 
 function handleSpeicherladepumpeChange(reason) {
   const speicherladepumpeOn = !!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val;
+  const priorityAllowed = isSpeicherladepumpePriorityAllowed();
 
-  if (speicherladepumpeOn) {
+  if (speicherladepumpeOn && priorityAllowed) {
     beginSpeicherladepumpePriority();
     applyDesired(reason);
     return;
@@ -255,6 +263,7 @@ setState(STATE_DP, getPumpIsOn(), true);
 
 on({ id: MODE_DP, change: 'ne' }, () => applyDesired('MODE-Wechsel'));
 on({ id: SPEICHERLADEPUMPE_STATUS_DP, change: 'ne' }, () => handleSpeicherladepumpeChange('WW-Vorrang Speicherladepumpe'));
+on({ id: SPEICHERLADEPUMPE_MANUAL_MODE_DP, change: 'ne' }, () => handleSpeicherladepumpeChange('ManualMode Speicherladepumpe'));
 
 on({ id: MANUAL_REQUEST_DP, change: 'ne' }, obj => {
   // Wenn der Wert vom Skript gespiegelt wurde (ack=true), nicht wieder schalten (sonst Toggle-Loop)
@@ -285,7 +294,7 @@ on({ id: PUMP_STATUS_DP, change: 'ne' }, () => {
 // Initialer Lauf
 setTimeout(() => {
   logAction('Start: initiale Auswertung');
-  if (!!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val) {
+  if (!!getState(SPEICHERLADEPUMPE_STATUS_DP)?.val && isSpeicherladepumpePriorityAllowed()) {
     beginSpeicherladepumpePriority();
   }
   applyDesired('Start');
