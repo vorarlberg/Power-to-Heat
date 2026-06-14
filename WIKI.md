@@ -200,11 +200,14 @@ Wichtige Anzeigen:
 | `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | `true`, wenn Soll und Ist nicht zusammenpassen und kein Bypass aktiv ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline` | `true`, wenn der Shelly länger als 10 s offline ist. |
 | `0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv` | `true`, wenn Übertemperatur oder ein ungültiger WW-Fühler die Pumpe fail-safe ausgeschaltet hat. |
+| `0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungEin` | Abschalttemperatur für die WW-Sicherheitsabschaltung, Default `60 °C`. |
+| `0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungAus` | Freigabetemperatur für die WW-Sicherheitsabschaltung, Default `58 °C`. |
 
 Verhalten:
 
-- Bei Warmwasser-Isttemperatur ab 60 °C schaltet die Pumpe aus.
-- Freigabe nach dieser Sicherheitsabschaltung erst wieder bei 58 °C oder darunter.
+- Bei Warmwasser-Isttemperatur ab `Parameter.SicherheitsabschaltungEin` (Default 60 °C) schaltet die Pumpe aus.
+- Freigabe nach dieser Sicherheitsabschaltung erst wieder bei `Parameter.SicherheitsabschaltungAus` (Default 58 °C) oder darunter.
+- Falls die Freigabetemperatur versehentlich gleich/über der Abschalttemperatur liegt, erzwingt das Skript intern mindestens 1 K Hysterese.
 - Wenn der Warmwasserfühler ungültig oder nicht plausibel ist, schaltet die Pumpe fail-safe aus, damit kein vorheriger EIN-Zustand weiterläuft.
 - Im `Kesselbetrieb` und `Unterstützungsbetrieb` folgt sie der externen Kessel-/Logikfreigabe.
 - Im `Heizstabbetrieb` arbeitet sie temperaturgeführt.
