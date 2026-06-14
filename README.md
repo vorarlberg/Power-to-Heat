@@ -89,7 +89,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.0`, Speicherladepumpe `1.2.6` und WW-Pumpe `1.1.0` melden. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.1`, Speicherladepumpe `1.2.7` und WW-Pumpe `1.1.0` melden. |
 | `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
@@ -143,7 +143,7 @@ Alle Haupt-DPs liegen unter `0_userdata.0.Heizstab.V2.`.
 
 - Heizstab darf PV-Überschuss nutzen, sofern `Regelung.ENABLE = true` ist und keine Sperre anliegt.
 - Speicherladepumpe wird in diesem Modus temperaturgeführt betrieben.
-- Heizkreispumpe läuft grundsätzlich, wird aber während aktiver Speicherladepumpe für WW-Vorrang abgeschaltet bzw. nachher wiederhergestellt.
+- Heizkreispumpe läuft grundsätzlich, wird aber nur während automatischem Speicherladepumpen-Vorrang abgeschaltet bzw. nachher wiederhergestellt.
 
 #### `Unterstützungsbetrieb`
 
@@ -366,7 +366,7 @@ Dieses Skript steuert die Speicherladepumpe. Die Ausgabe erfolgt über zwei GPIO
 | `GPIO17` | `true` | `false` |
 | `GPIO18` | `false` | `true` |
 
-Das Skript veröffentlicht seine Version `1.2.6` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
+Das Skript veröffentlicht seine Version `1.2.7` unter `0_userdata.0.Heizung.Speicherladepumpe.scriptVersion`, damit das Hauptskript sie überwachen kann.
 
 ### Wichtige Datenpunkte
 
@@ -426,6 +426,7 @@ Die Reihenfolge ist wichtig:
    - `ManualMode = ON` darf bis zur Sicherheitsabschaltung laden.
    - `ManualMode = OFF` schaltet aus.
    - In `AUTO` wird die Pumpe weiterhin spätestens bei erreichter WW-Zieltemperatur ausgeschaltet, auch wenn die Sicherheitsabschaltung höher eingestellt ist.
+   - Liegt die WW-Zieltemperatur über der Sicherheitsabschaltung, wird in `AUTO` die effektive Zieltemperatur auf die Sicherheitsabschaltung begrenzt; `ManualMode = ON` bleibt davon unberührt und darf nur bis zur Sicherheitsabschaltung laden.
 4. **Shelly offline**
    - Wenn der Shelly länger als `10 s` offline ist, wird ein Fehler gesetzt.
    - In `AUTO` wird die Pumpe ausgeschaltet.
@@ -454,6 +455,7 @@ Die Ist-Rückmeldung kommt vom Schütz. Das Skript setzt:
 
 - `Ist` immer auf den gelesenen Pumpenzustand.
 - `SollIstFehler = true`, wenn `Ist != Soll` und kein Bypass aktiv ist.
+- Nach jedem Sollwertwechsel wartet die Überwachung `500 ms`, damit das Schütz anziehen oder abfallen kann, bevor eine Abweichung gemeldet wird.
 
 Bei aktivem Bypass wird `SollIstFehler` bewusst auf `false` gesetzt.
 
@@ -463,7 +465,7 @@ Bei aktivem Bypass wird `SollIstFehler` bewusst auf `false` gesetzt.
 
 Dieses Skript steuert die Heizkreispumpe über ein Shelly-Relais, das ein **Stromstoßrelais** per kurzem Impuls toggelt. Es schaltet also nicht dauerhaft einen Ausgang, sondern sendet bei Bedarf einen kurzen Umschaltimpuls.
 
-Das Skript veröffentlicht seine Version `1.2.0` unter `0_userdata.0.Heizung.Heizkreispumpe.scriptVersion`.
+Das Skript veröffentlicht seine Version `1.2.1` unter `0_userdata.0.Heizung.Heizkreispumpe.scriptVersion`.
 
 ### Wichtige Datenpunkte
 
@@ -493,18 +495,20 @@ Das Skript veröffentlicht seine Version `1.2.0` unter `0_userdata.0.Heizung.Hei
 | Modus | gewünschter Zustand |
 | --- | --- |
 | `Unterstützungsbetrieb` | Heizkreispumpe EIN. |
-| `Heizstabbetrieb` | Heizkreispumpe EIN, außer Speicherladepumpe läuft. |
+| `Heizstabbetrieb` | Heizkreispumpe EIN, außer automatischer Speicherladepumpen-Vorrang ist aktiv. |
 | `Kesselbetrieb` | Heizkreispumpe AUS. |
 | unbekannter Modus | aktuellen Zustand beibehalten. |
 
 ### Speicherladepumpen-Vorrang
 
-Wenn die Speicherladepumpe im Heizstabbetrieb einschaltet:
+Wenn die Speicherladepumpe im Heizstabbetrieb einschaltet und `ManualMode = AUTO` aktiv ist:
 
 1. Der aktuelle Zustand der Heizkreispumpe wird gespeichert.
 2. `speicherladepumpePriorityActive` wird auf `true` gesetzt.
 3. Die Heizkreispumpe wird ausgeschaltet, damit Warmwasserladung Vorrang hat.
 4. Wenn die Speicherladepumpe wieder ausgeht, wird im Heizstabbetrieb der vorherige Zustand wiederhergestellt.
+
+Bei manuellem `ManualMode = ON` oder `ManualMode = OFF` der Speicherladepumpe wird kein Warmwasser-Vorrang ausgelöst; die Heizkreispumpe bleibt dadurch unverändert.
 
 ### Manuelle Bedienung
 

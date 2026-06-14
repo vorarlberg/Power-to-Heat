@@ -37,7 +37,7 @@ const DP_PUMP_LAST_REASON = '0_userdata.0.Heizung.Speicherladepumpe.LetzterSchal
 const DP_PUMP_SAFETY_TEMP = '0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungEin'; // number °C: Abschaltung ab dieser WW-Temperatur, Reset automatisch 2 K darunter
 const DP_SCRIPT_VERSION = '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion';
 
-const SCRIPT_VERSION = '1.2.6';
+const SCRIPT_VERSION = '1.2.7';
 
 // =======================
 // Parameter
@@ -51,6 +51,7 @@ const WW_TEMP_VALID_MAX = 95; // darüber gilt der WW-Fühler als ungültig -> F
 
 const DEBOUNCE_SHELLY_MS = 1000;
 const DEBOUNCE_IST_MS     = 500;  // Entprellung Ist-Rückmeldung
+const SOLL_IST_AFTER_SWITCH_DELAY_MS = 500; // Wartezeit nach Sollwertwechsel, bis das Schütz angezogen/abgefallen sein muss
 const DEBOUNCE_TEMP_MS   = 10000;
 const GPIO_TEST_DELAY_MS = 500;
 const IST_INVERT          = false; // auf true setzen, falls der Kontakt logisch invertiert ist (z.B. NC)
@@ -77,6 +78,7 @@ let pumpIsOn = null;
 let shellyTimer = null;
 let tempTimer   = null;
 let istTimer    = null;
+let sollIstSwitchTimer = null;
 
 let shellyOfflineTimer = null;
 let shellyOfflineFaultActive = false;
@@ -86,6 +88,11 @@ let waitForPufferDeltaAfterEqualized = false;
 // =======================
 // Pumpensteuerung
 // =======================
+function scheduleSollIstUpdate(reason = '') {
+    if (sollIstSwitchTimer) clearTimeout(sollIstSwitchTimer);
+    sollIstSwitchTimer = setTimeout(() => updateSollIst(reason), SOLL_IST_AFTER_SWITCH_DELAY_MS);
+}
+
 function setPump(on, reason = '') {
     if (reason) setState(DP_PUMP_LAST_REASON, reason, true);
     if (pumpIsOn === on) return;
@@ -96,14 +103,14 @@ function setPump(on, reason = '') {
         pumpIsOn = true;
         setState(DP_PUMP_STATE, true, true);
         log('[Pumpe] EIN', 'info');
-        updateSollIst('setPump');
+        scheduleSollIstUpdate('setPump');
     } else {
         setState(DP_GPIO17, false, true);
         setState(DP_GPIO18, true,  true);
         pumpIsOn = false;
         setState(DP_PUMP_STATE, false, true);
         log('[Pumpe] AUS', 'info');
-        updateSollIst('setPump');
+        scheduleSollIstUpdate('setPump');
     }
 }
 
@@ -149,6 +156,11 @@ function getSafetyTemperatures() {
 function getWwTargetTemp() {
     const target = Number(getState(DP_WW_TARGET)?.val);
     return isNaN(target) ? null : target;
+}
+
+function getEffectiveAutoTargetTemp(configuredTarget, safetyOnTemp) {
+    if (configuredTarget === null) return null;
+    return Math.min(configuredTarget, safetyOnTemp);
 }
 
 function isHeizstabRunning() {
@@ -243,9 +255,9 @@ function evaluate() {
     // manualMode === 'AUTO' -> weiter mit Automatik
     // In AUTO begrenzt weiterhin die WW-Zieltemperatur. Nur ManualMode ON darf
     // bis zur Sicherheitsabschaltung laden.
-    const autoTargetTemp = getWwTargetTemp();
+    const autoTargetTemp = getEffectiveAutoTargetTemp(getWwTargetTemp(), safetyTemps.onTemp);
     if (autoTargetTemp !== null && wwSafety.value >= autoTargetTemp) {
-        setPump(false, 'AUTO: WW-Zieltemperatur erreicht');
+        setPump(false, autoTargetTemp < getWwTargetTemp() ? 'AUTO: effektive WW-Zieltemperatur durch Sicherheitsabschaltung begrenzt' : 'AUTO: WW-Zieltemperatur erreicht');
         return;
     }
 
@@ -277,7 +289,8 @@ function evaluate() {
             return;
         }
 
-        const zielTemp = getWwTargetTemp();
+        const configuredZielTemp = getWwTargetTemp();
+        const zielTemp = getEffectiveAutoTargetTemp(configuredZielTemp, safetyTemps.onTemp);
         const heizstabRunning = isHeizstabRunning();
 
         // Fallback auf alte Hysterese, falls die WW-Zieltemperatur nicht lesbar ist.
@@ -296,8 +309,10 @@ function evaluate() {
         }
 
         // Zieltemperatur im Warmwasserspeicher erreicht: Ladepumpe aus.
+        // Wenn die Zieltemperatur über der Sicherheitsabschaltung liegt, begrenzt die Sicherheitsabschaltung
+        // die effektive AUTO-Zieltemperatur. ManualMode ON darf weiterhin bis zur Sicherheitsabschaltung laden.
         if (tWw >= zielTemp) {
-            setPump(false, 'WW-Zieltemperatur erreicht');
+            setPump(false, zielTemp < configuredZielTemp ? 'Effektive WW-Zieltemperatur durch Sicherheitsabschaltung begrenzt' : 'WW-Zieltemperatur erreicht');
             return;
         }
 

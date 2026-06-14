@@ -67,7 +67,7 @@ Der Datenpunkt **`0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus`** bestimmt di
 
 | Betriebsart | Bedeutung für Anwender |
 | --- | --- |
-| `Heizstabbetrieb` | Normaler PV-Heizbetrieb. Der Heizstab darf Überschuss nutzen. Die Speicherladepumpe arbeitet temperaturgeführt. Die Heizkreispumpe läuft grundsätzlich, wird aber bei aktiver Speicherladepumpe wegen Warmwasser-Vorrang abgeschaltet. |
+| `Heizstabbetrieb` | Normaler PV-Heizbetrieb. Der Heizstab darf Überschuss nutzen. Die Speicherladepumpe arbeitet temperaturgeführt. Die Heizkreispumpe läuft grundsätzlich, wird aber nur bei automatischem Speicherladepumpen-Vorrang abgeschaltet. |
 | `Unterstützungsbetrieb` | Unterstützender Betrieb mit externer Kessel-/Logikfreigabe. Die Heizstabregelung kann PV-Überschuss nutzen, wenn sie freigegeben ist. Die Speicherladepumpe folgt der externen Freigabe. Die Heizkreispumpe soll eingeschaltet sein. |
 | `Kesselbetrieb` | Heizstab wird deaktiviert. Die manuelle Heizstabfreigabe wird ausgeschaltet. Die Speicherladepumpe folgt der externen Kessel-/Logikfreigabe. Die Heizkreispumpe soll ausgeschaltet sein. |
 
@@ -209,6 +209,8 @@ Verhalten:
 - Der separate Freigabe-DP entfällt; der Reset wird immer aus der Abschalttemperatur minus 2 K berechnet.
 - Wenn der Warmwasserfühler ungültig oder nicht plausibel ist, schaltet die Pumpe fail-safe aus, damit kein vorheriger EIN-Zustand weiterläuft.
 - In `AUTO` schaltet die Pumpe weiterhin bei erreichter WW-Zieltemperatur ab. Nur `ManualMode = ON` darf bis zur Sicherheitsabschaltung laden.
+- Liegt die WW-Zieltemperatur über der Sicherheitsabschaltung, nutzt `AUTO` die Sicherheitsabschaltung als effektive Zielgrenze; `ManualMode = ON` darf nur bis zur Sicherheitsabschaltung laden.
+- Die Soll-/Ist-Überwachung wartet nach jedem Sollwertwechsel 500 ms, damit das Schütz anziehen oder abfallen kann.
 - Im `Kesselbetrieb` und `Unterstützungsbetrieb` folgt sie der externen Kessel-/Logikfreigabe, solange die AUTO-Zieltemperatur noch nicht erreicht ist.
 - Im `Heizstabbetrieb` arbeitet sie temperaturgeführt.
 - Wenn der Heizstab aus ist und der Puffer die Zieltemperatur nicht erreichen kann, wird nicht unnötig umgeladen.
@@ -237,10 +239,10 @@ Verhalten nach Betriebsart:
 | Betriebsart | Heizkreispumpe |
 | --- | --- |
 | `Unterstützungsbetrieb` | Ein. |
-| `Heizstabbetrieb` | Ein, solange die Speicherladepumpe nicht läuft. |
+| `Heizstabbetrieb` | Ein, außer während automatischem Speicherladepumpen-Vorrang (`ManualMode = AUTO` und Speicherladepumpe läuft). |
 | `Kesselbetrieb` | Aus. |
 
-Wenn die Speicherladepumpe im Heizstabbetrieb startet, wird der vorherige Zustand der Heizkreispumpe gespeichert. Danach wird die Heizkreispumpe ausgeschaltet, damit Warmwasser Vorrang hat. Wenn die Speicherladepumpe wieder aus ist, wird der vorherige Zustand wiederhergestellt.
+Wenn die Speicherladepumpe im Heizstabbetrieb automatisch (`ManualMode = AUTO`) startet, wird der vorherige Zustand der Heizkreispumpe gespeichert. Danach wird die Heizkreispumpe ausgeschaltet, damit Warmwasser Vorrang hat. Wenn die Speicherladepumpe wieder aus ist, wird der vorherige Zustand wiederhergestellt. Manuelles `ON` oder `OFF` der Speicherladepumpe löst keinen Warmwasser-Vorrang aus und schaltet die Heizkreispumpe nicht um.
 
 ### Warmwasser-Zirkulationspumpe
 
