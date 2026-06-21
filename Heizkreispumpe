@@ -15,9 +15,10 @@ const SHELLY_ONLINE_DP   = 'shelly.1.shellypro3#ece334ed5048#1.online'; // Shell
 const MODE_DP            = '0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus';
 const SPEICHERLADEPUMPE_STATUS_DP = '0_userdata.0.Heizung.Speicherladepumpe.Status'; // true=AN
 const SPEICHERLADEPUMPE_MANUAL_MODE_DP = '0_userdata.0.Heizung.Speicherladepumpe.ManualMode'; // AUTO|ON|OFF
+const PUFFERSPEICHER_TEMP_DP = 'modbus.2.holdingRegisters.1.1030_Temp_2'; // Pufferspeicher-Temperatur für Sommer-Freilauf
 
 const BASE_DP            = '0_userdata.0.Heizung.Heizkreispumpe';
-const SCRIPT_VERSION    = '1.2.1';
+const SCRIPT_VERSION    = '1.3.0';
 const VERSION_DP        = `${BASE_DP}.scriptVersion`;
 
 const MANUAL_REQUEST_DP  = `${BASE_DP}.manualRequest`;  // bool: Benutzerwunsch EIN/AUS (wird NICHT automatisch überschrieben)
@@ -25,10 +26,23 @@ const STATE_DP           = `${BASE_DP}.state`;          // bool: realer Pumpenzu
 const LAST_ACTION_DP     = `${BASE_DP}.lastAction`;   // string: Logging/Info
 const STATE_BEFORE_SPEICHERLADEPUMPE_DP = `${BASE_DP}.stateBeforeSpeicherladepumpe`; // bool: Zustand vor WW-Vorrang
 const SPEICHERLADEPUMPE_PRIORITY_ACTIVE_DP = `${BASE_DP}.speicherladepumpePriorityActive`; // bool: WW-Vorrang läuft
+const SUMMER_LAST_RUN_TS_DP = `${BASE_DP}.summerExercise.lastRunTs`; // number: letzter erfolgreicher Sommer-Freilauf (Unix ms)
+const SUMMER_PENDING_SINCE_TS_DP = `${BASE_DP}.summerExercise.pendingSinceTs`; // number: seit wann auf 85 °C gewartet wird
+const SUMMER_ACTIVE_DP = `${BASE_DP}.summerExercise.active`; // bool: Sommer-Freilauf läuft gerade
+const SUMMER_NEXT_DUE_DP = `${BASE_DP}.summerExercise.nextDue`; // string: nächste Fälligkeit/Status
 
 const PULSE_MS           = 900;   // < 1 Sekunde (sicher unter 1000ms)
 const MIN_GAP_MS         = 1500;  // Mindestabstand zwischen Impulsen (Schutz vor Prellen/Loops)
 const SPEICHERLADEPUMPE_PRIORITY_MANUAL_MODE = 'AUTO'; // WW-Vorrang nur bei Automatik der Speicherladepumpe
+
+// Sommer-Freilauf gegen Festsetzen der Heizkreispumpe
+const SUMMER_EXERCISE_ENABLED = true;
+const SUMMER_EXERCISE_INTERVAL_DAYS = 7;      // alle 7 Tage prüfen/laufen lassen
+const SUMMER_EXERCISE_DURATION_MIN = 15;      // Laufzeit des Freilaufs
+const SUMMER_EXERCISE_MIN_PUFFER_TEMP_C = 85; // bevorzugt nur starten, wenn Puffer >= 85 °C
+const SUMMER_EXERCISE_WAIT_DAYS_FOR_TEMP = 1; // nach Fälligkeit 1 Tag auf 85 °C warten
+const SUMMER_EXERCISE_FORCE_HOUR = 12;        // wenn keine 85 °C erreicht: nächster Mittag 12 Uhr
+const SUMMER_EXERCISE_CHECK_CRON = '*/15 * * * *'; // Prüfung alle 15 Minuten
 
 // Betriebsmodus-Strings (ggf. an deine exakten Texte anpassen)
 const MODE_SUPPORT       = 'Unterstützungsbetrieb';
@@ -38,6 +52,8 @@ const MODE_KESSEL        = 'Kesselbetrieb';
 // ===================== STATE ==========================
 let isPulsing = false;
 let lastPulseTs = 0;
+let summerExerciseTimer = null;
+let summerExerciseRestoreState = false;
 
 // ===================== HELPERS =========================
 function ensureDps() {
@@ -98,6 +114,38 @@ function ensureDps() {
     name: 'Heizkreispumpe - Speicherladepumpe Vorrang aktiv',
     type: 'boolean',
     role: 'indicator',
+    read: true,
+    write: false
+  });
+
+  createState(SUMMER_LAST_RUN_TS_DP, 0, {
+    name: 'Heizkreispumpe - Sommer-Freilauf letzter Lauf (Unix ms)',
+    type: 'number',
+    role: 'value.time',
+    read: true,
+    write: false
+  });
+
+  createState(SUMMER_PENDING_SINCE_TS_DP, 0, {
+    name: 'Heizkreispumpe - Sommer-Freilauf wartet seit (Unix ms)',
+    type: 'number',
+    role: 'value.time',
+    read: true,
+    write: false
+  });
+
+  createState(SUMMER_ACTIVE_DP, false, {
+    name: 'Heizkreispumpe - Sommer-Freilauf aktiv',
+    type: 'boolean',
+    role: 'indicator',
+    read: true,
+    write: false
+  });
+
+  createState(SUMMER_NEXT_DUE_DP, '', {
+    name: 'Heizkreispumpe - Sommer-Freilauf nächste Fälligkeit/Status',
+    type: 'string',
+    role: 'text',
     read: true,
     write: false
   });
@@ -239,7 +287,127 @@ function handleSpeicherladepumpeChange(reason) {
   applyDesired(reason);
 }
 
+
+function getNumberState(dp, fallback = 0) {
+  const value = Number(getState(dp)?.val);
+  return isNaN(value) ? fallback : value;
+}
+
+function getPufferTempC() {
+  return getNumberState(PUFFERSPEICHER_TEMP_DP, NaN);
+}
+
+function getLastSummerExerciseTs() {
+  return getNumberState(SUMMER_LAST_RUN_TS_DP, 0);
+}
+
+function getPendingSummerExerciseSinceTs() {
+  return getNumberState(SUMMER_PENDING_SINCE_TS_DP, 0);
+}
+
+function setSummerNextDue(text) {
+  setState(SUMMER_NEXT_DUE_DP, text, true);
+}
+
+function formatTs(ts) {
+  return ts > 0 ? new Date(ts).toLocaleString('de-DE') : 'noch nie';
+}
+
+function isSummerExerciseDue(now) {
+  const lastRunTs = getLastSummerExerciseTs();
+  if (lastRunTs <= 0) return true;
+  return (now - lastRunTs) >= SUMMER_EXERCISE_INTERVAL_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function isSummerExerciseForceTime(now, pendingSinceTs) {
+  if (pendingSinceTs <= 0) return false;
+  const waitedLongEnough = (now.getTime() - pendingSinceTs) >= SUMMER_EXERCISE_WAIT_DAYS_FOR_TEMP * 24 * 60 * 60 * 1000;
+  return waitedLongEnough && now.getHours() === SUMMER_EXERCISE_FORCE_HOUR;
+}
+
+function updateSummerExerciseStatus(now = new Date()) {
+  const lastRunTs = getLastSummerExerciseTs();
+  const nextDueTs = lastRunTs > 0 ? lastRunTs + SUMMER_EXERCISE_INTERVAL_DAYS * 24 * 60 * 60 * 1000 : now.getTime();
+  const pendingSinceTs = getPendingSummerExerciseSinceTs();
+  if (pendingSinceTs > 0) {
+    setSummerNextDue(`fällig seit ${formatTs(pendingSinceTs)}; wartet auf ${SUMMER_EXERCISE_MIN_PUFFER_TEMP_C} °C oder ${SUMMER_EXERCISE_FORCE_HOUR}:00 Uhr nach ${SUMMER_EXERCISE_WAIT_DAYS_FOR_TEMP} Tag`);
+  } else {
+    setSummerNextDue(`nächste Prüfung fällig: ${formatTs(nextDueTs)}`);
+  }
+}
+
+function finishSummerExercise() {
+  if (summerExerciseTimer) {
+    clearTimeout(summerExerciseTimer);
+    summerExerciseTimer = null;
+  }
+
+  setState(SUMMER_ACTIVE_DP, false, true);
+  setState(SUMMER_LAST_RUN_TS_DP, Date.now(), true);
+  setState(SUMMER_PENDING_SINCE_TS_DP, 0, true);
+
+  if (!summerExerciseRestoreState) {
+    setPumpTo(false, 'Sommer-Freilauf beendet');
+  }
+
+  logAction(`Sommer-Freilauf beendet; letzter Lauf gespeichert`);
+  updateSummerExerciseStatus();
+}
+
+function startSummerExercise(reason) {
+  if (getState(SUMMER_ACTIVE_DP)?.val === true) return;
+  if (!isShellyOnline()) {
+    setState(`${BASE_DP}.shellyOffline`, true, true);
+    logAction(`FEHLER: Shelly offline – Sommer-Freilauf kann nicht gestartet werden [${reason}]`);
+    return;
+  }
+
+  summerExerciseRestoreState = getPumpIsOn();
+  setState(SUMMER_ACTIVE_DP, true, true);
+  setPumpTo(true, reason);
+  logAction(`Sommer-Freilauf gestartet für ${SUMMER_EXERCISE_DURATION_MIN} min [${reason}]`);
+
+  if (summerExerciseTimer) clearTimeout(summerExerciseTimer);
+  summerExerciseTimer = setTimeout(finishSummerExercise, SUMMER_EXERCISE_DURATION_MIN * 60 * 1000);
+}
+
+function checkSummerExercise() {
+  if (!SUMMER_EXERCISE_ENABLED) return;
+  if (getState(SUMMER_ACTIVE_DP)?.val === true) return;
+
+  const now = new Date();
+  if (!isSummerExerciseDue(now.getTime())) {
+    updateSummerExerciseStatus(now);
+    return;
+  }
+
+  const temp = getPufferTempC();
+  if (temp >= SUMMER_EXERCISE_MIN_PUFFER_TEMP_C) {
+    startSummerExercise(`Sommer-Freilauf: Puffer ${temp.toFixed(1)} °C >= ${SUMMER_EXERCISE_MIN_PUFFER_TEMP_C} °C`);
+    return;
+  }
+
+  let pendingSinceTs = getPendingSummerExerciseSinceTs();
+  if (pendingSinceTs <= 0) {
+    pendingSinceTs = now.getTime();
+    setState(SUMMER_PENDING_SINCE_TS_DP, pendingSinceTs, true);
+    logAction(`Sommer-Freilauf fällig, warte bis zu ${SUMMER_EXERCISE_WAIT_DAYS_FOR_TEMP} Tag auf ${SUMMER_EXERCISE_MIN_PUFFER_TEMP_C} °C (aktuell ${isNaN(temp) ? 'ungültig' : temp.toFixed(1) + ' °C'})`);
+  }
+
+  if (isSummerExerciseForceTime(now, pendingSinceTs)) {
+    startSummerExercise(`Sommer-Freilauf: Zwangsstart um ${SUMMER_EXERCISE_FORCE_HOUR}:00 Uhr nach Wartezeit (Puffer ${isNaN(temp) ? 'ungültig' : temp.toFixed(1) + ' °C'})`);
+    return;
+  }
+
+  updateSummerExerciseStatus(now);
+}
+
 function applyDesired(reason) {
+  if (getState(SUMMER_ACTIVE_DP)?.val === true) {
+    logAction(`Automatik pausiert: Sommer-Freilauf aktiv [${reason}]`);
+    return;
+  }
+
   // Shelly offline -> keine Steuerung möglich
   if (!isShellyOnline()) {
     setState(`${BASE_DP}.shellyOffline`, true, true);
@@ -264,6 +432,8 @@ setState(STATE_DP, getPumpIsOn(), true);
 on({ id: MODE_DP, change: 'ne' }, () => applyDesired('MODE-Wechsel'));
 on({ id: SPEICHERLADEPUMPE_STATUS_DP, change: 'ne' }, () => handleSpeicherladepumpeChange('WW-Vorrang Speicherladepumpe'));
 on({ id: SPEICHERLADEPUMPE_MANUAL_MODE_DP, change: 'ne' }, () => handleSpeicherladepumpeChange('ManualMode Speicherladepumpe'));
+on({ id: PUFFERSPEICHER_TEMP_DP, change: 'ne' }, () => checkSummerExercise());
+if (SUMMER_EXERCISE_ENABLED) schedule(SUMMER_EXERCISE_CHECK_CRON, checkSummerExercise);
 
 on({ id: MANUAL_REQUEST_DP, change: 'ne' }, obj => {
   // Wenn der Wert vom Skript gespiegelt wurde (ack=true), nicht wieder schalten (sonst Toggle-Loop)
@@ -298,4 +468,5 @@ setTimeout(() => {
     beginSpeicherladepumpePriority();
   }
   applyDesired('Start');
+  checkSummerExercise();
 }, 1000);
