@@ -58,7 +58,7 @@ Die Automatisierung übernimmt dabei:
    - FI/LS aus
    - Übertemperatur intern/extern
    - Offline-Geräte außerhalb Nachtpause
-   - Maximaltemperatur mit Hysterese
+   - Maximaltemperatur über internen oder externen Sensor; Wiedereinschaltung über bestehende Hysterese oder zusätzliche Schichtungs-Freigabe
    - Soll-/Ist-Leistungsabweichung
 4. **Aktion bestimmen**
    - Heizstab aus
@@ -90,7 +90,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
 | `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.2.1`, Speicherladepumpe `1.2.7` und WW-Pumpe `1.1.0` melden. |
-| `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, Übertemperatur intern/extern je `97 °C`. |
+| `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, MaxTemp-Wiedereinschaltung über Delta-T-Hysterese oder zusätzlich wenn intern mehr als `10 K` kühler als extern ist, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
 | `QUIET` | Nachtmodus für Online-Checks | Online-Prüfungen sind von `22:00` bis `04:00` pausiert. |
@@ -235,18 +235,21 @@ Es gibt zwei unterschiedliche Temperatur-Schutzebenen:
 #### 1. Normale Maximaltemperatur (`TP002`)
 
 - Grundlage: `Parameter.MaxTemp`, Default `75 °C`.
-- Wenn die externe Temperatur `>= MaxTemp` ist, wird der Heizstab ausgeschaltet.
-- Freigabe erst wieder bei:
+- Wenn die interne oder externe Temperatur `>= MaxTemp` ist, wird der Heizstab ausgeschaltet.
+- Freigabe über die bestehende Hysterese weiterhin bei:
 
 ```text
 tempExtern <= MaxTemp - DeltaT_Regelbereich
 ```
 
+Zusätzlich kann die MaxTemp-Sperre freigegeben werden, wenn der interne Sensor mehr als `10 K` kühler als der externe Sensor ist. Diese Zusatzfreigabe hilft, Wärmeschichtung im Speicher aufzubrechen und mehr Speichervolumen auf hohe Temperatur zu bringen.
+
 Mit Defaultwerten:
 
 ```text
 Sperre ab >= 75 °C
-Freigabe erst wieder bei <= 70 °C
+Hysterese-Freigabe bei extern <= 70 °C
+Zusatz-Freigabe bei intern mehr als 10 K kühler als extern
 ```
 
 #### 2. Harte Übertemperatur (`TP004`)
@@ -586,7 +589,7 @@ Externe DPs:
 | `RG003` | PV-Überschuss ausreichend | Heizstab regelt Leistung. | keine. |
 | `RG004` | Überschuss zu gering | Heizstab aus. | keine. |
 | `TP001` | Temperatursensor im Selbsttest unplausibel | Selbsttest bricht ab. | keine harte Sperre. |
-| `TP002` | externe Temperatur >= `MaxTemp` | Heizstab aus bis `MaxTemp - DeltaT`. | automatisch durch Hysterese. |
+| `TP002` | interne oder externe Temperatur >= `MaxTemp` | Heizstab aus bis `MaxTemp - DeltaT` oder Zusatzfreigabe bei intern > 10 K kühler als extern. | automatisch durch Hysterese oder Schichtungs-Freigabe. |
 | `TP003` | WW-Sicherstellung aktiv/wartend | Heizstab heizt mit `3450 W` oder wartet in Hysterese. | keine. |
 | `TP004` | intern/extern >= Übertemperaturgrenze | Sofort aus, Sperre, rote LED. | erst quittierbar, wenn Temperatur wieder unter Grenze. |
 | `FI001` | FI/LS länger als `2 s` aus | Sofort aus, Sperre, rote LED. | erst quittierbar, wenn FI/LS wieder OK. |

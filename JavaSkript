@@ -1,6 +1,6 @@
 /************************************************************
  * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
- * Version: 2.8.0  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Version: 2.8.2  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
  * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
  ************************************************************/
 
@@ -34,6 +34,7 @@ const LIMITS = {
     hystereseW: 100,
     wwTempMinDefault: 30,
     wwTempMaxDefault: 75,
+    maxTempInternExternDiffReleaseK: 10, // Zusatz-Freigabe nach MaxTemp: intern muss mehr als 10 K kühler als extern sein
     uebertempInternDefault: 97,
     uebertempExternDefault: 97
 };
@@ -1317,6 +1318,7 @@ if (!_activeFaults.has('FI001')) {
         const ueberschuss = netzNettoW + istHeiz;
 
         const tempExt = Number(getState(EXTERNAL.tempExternC)?.val) || 0;
+        const tempInt = Number(getState(EXTERNAL.tempInternC)?.val) || 0;
         const speicherTemp = Number(getState(EXTERNAL.speicherTempC)?.val) || 0;
         const tempMin = Number(getState(DP.tempMin)?.val) || LIMITS.wwTempMinDefault;
         const tempMax = Number(getState(DP.tempMax)?.val) || LIMITS.wwTempMaxDefault;
@@ -1324,26 +1326,35 @@ if (!_activeFaults.has('FI001')) {
         const zielTemp = Number(getState(DP.wwZiel)?.val) || PARAM.wwZieltemp_Default;
         const wwAktiv = getState(DP.wwSicherAn)?.val === true;
 
-        // Max-Temp (gilt immer) – mit Hysterese über DeltaT_Regelbereich
-        // Wenn einmal >= tempMax erreicht: erst wieder freigeben, wenn tempExt <= (tempMax - deltaT)
-        const maxTempRelease = tempMax - Math.max(0, deltaT);
+        // Max-Temp (gilt immer) – beide Sensoren begrenzen den Heizstab.
+        // Bestehende Freigabe bleibt erhalten: extern <= (MaxTemp - DeltaT).
+        // Zusatz-Freigabe: Wenn der interne Sensor deutlich kühler als der externe Sensor ist,
+        // darf wieder geheizt werden, um die Wärmeschichtung im Speicher aufzubrechen.
+        // Danach läuft der Heizstab weiter, bis einer der beiden Sensoren erneut tempMax erreicht.
+        const maxTempDiffReleaseK = Math.max(0, LIMITS.maxTempInternExternDiffReleaseK);
+        const maxTempHystereseRelease = tempMax - Math.max(0, deltaT);
+        const maxTempTrigger = (tempExt >= tempMax) || (tempInt >= tempMax);
+        const maxTempReleaseByHysterese = tempExt <= maxTempHystereseRelease;
+        const maxTempReleaseBySchichtung = (tempExt - tempInt) > maxTempDiffReleaseK;
 
-        if (!_maxTempLatched && tempExt >= tempMax) {
+        if (!_maxTempLatched && maxTempTrigger) {
             _maxTempLatched = true;
             _maxTempMsgSent = false; // neuer Sperrzyklus
         }
 
         if (_maxTempLatched) {
-            // Freigabe erst unterhalb der Hysterese
-            if (tempExt <= maxTempRelease) {
+            if (maxTempReleaseByHysterese || maxTempReleaseBySchichtung) {
                 _maxTempLatched = false;
                 _maxTempMsgSent = false;
-                appendLog(`TP002: Max-Temp-Hysterese freigegeben – Temperatur ${tempExt}°C <= ${maxTempRelease.toFixed(1)}°C`);
+                const releaseReason = maxTempReleaseBySchichtung
+                    ? `Schichtungs-Freigabe: intern ${tempInt.toFixed(1)}°C ist > ${maxTempDiffReleaseK.toFixed(1)} K kühler als extern ${tempExt.toFixed(1)}°C`
+                    : `Hysterese-Freigabe: extern ${tempExt.toFixed(1)}°C <= ${maxTempHystereseRelease.toFixed(1)}°C`;
+                appendLog(`TP002: Max-Temp freigegeben – ${releaseReason}`);
             } else {
                 if (!_maxTempMsgSent) {
                     setState(
                         DP.status,
-                        `Maximaltemperatur erreicht – Warte bis <= ${maxTempRelease.toFixed(1)}°C (aktuell ${tempExt}°C). [TP002]`,
+                        `Maximaltemperatur erreicht – Warte bis extern <= ${maxTempHystereseRelease.toFixed(1)}°C oder intern > ${maxTempDiffReleaseK.toFixed(1)} K kühler als extern ist (intern ${tempInt.toFixed(1)}°C / extern ${tempExt.toFixed(1)}°C). [TP002]`,
                         true
                     );
                     _maxTempMsgSent = true;
