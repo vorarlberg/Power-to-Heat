@@ -97,7 +97,7 @@ Alle Hauptdatenpunkte liegen unter **`0_userdata.0.Heizstab.V2.`**.
 | `Parameter.WW_Zieltemperatur` | 60 °C | Zieltemperatur für die Warmwasser-Sicherstellung und Speicherladepumpenlogik. |
 | `Parameter.DeltaT_Regelbereich` | 5 K | Hysterese. Verhindert ständiges Ein-/Ausschalten rund um einen Grenzwert. |
 | `Parameter.MinTemp` | 30 °C | Untere Warmwassergrenze. Bei aktivierter Sicherstellung wird spätestens hier geheizt. |
-| `Parameter.MaxTemp` | 75 °C | Normale Maximaltemperatur. Ab hier wird der Heizstab gesperrt, bis die Temperatur um Delta-T gefallen ist. |
+| `Parameter.MaxTemp` | 75 °C | Normale Maximaltemperatur. Ab hier wird der Heizstab gesperrt, bis die Temperatur um Delta-T gefallen ist oder die zusätzliche Schichtungs-Freigabe greift. |
 | `Parameter.Übertemperatur_intern` | 97 °C | Harte Sicherheitsgrenze am internen Heizstabfühler. |
 | `Parameter.Übertemperatur_extern` | 97 °C | Harte Sicherheitsgrenze am externen Heizstab-/Pufferfühler. |
 | `Parameter.WW_Sicherstellung_AN` | aus | Aktiviert die Warmwasser-Sicherstellung. |
@@ -163,17 +163,24 @@ Die Sicherstellung kann auch dann heizen, wenn nicht genug PV-Überschuss vorhan
 
 | Sensor / Datenpunkt | Anzeige / Bedeutung | Wird verwendet für |
 | --- | --- | --- |
-| `modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern` | Interner Heizstabfühler | Harte Übertemperaturüberwachung intern; Plausibilitätsprüfung im Selbsttest. |
-| `modbus.2.holdingRegisters.1.1030_Temp_2` | Externer Heizstab-/Pufferfühler | Maximaltemperatur, harte Übertemperatur extern, PV-/WW-Regelung als Speicher-/Pufferwert. |
+| `modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern` | Interner Heizstabfühler | Maximaltemperatur, Zusatz-Freigabe bei Schichtung, harte Übertemperaturüberwachung intern; Plausibilitätsprüfung im Selbsttest. |
+| `modbus.2.holdingRegisters.1.1030_Temp_2` | Externer Heizstab-/Pufferfühler | Maximaltemperatur, Hysterese-Freigabe, Zusatz-Freigabe bei Schichtung, harte Übertemperatur extern, PV-/WW-Regelung als Speicher-/Pufferwert. |
 | `alias.0.Heizung.Speicher_Warmwasser.ACTUAL` | Warmwasser-Isttemperatur | Speicherladepumpe: Sicherheitsabschaltung ab 60 °C, Zieltemperaturbewertung und Umladelogik. |
 | `0_userdata.0.Heizstab.V2.Parameter.WW_Zieltemperatur` | Einstellbarer Sollwert | Zielwert für Warmwasser-Sicherstellung und Speicherladepumpe. |
 | `0_userdata.0.Heizstab.V2.Parameter.DeltaT_Regelbereich` | Einstellbare Hysterese | Freigabe nach Maximaltemperatur und Einschaltpunkt der Warmwasser-Sicherstellung. |
+
+
+### Zusatz-Freigabe bei Wärmeschichtung
+
+Im Speicher kann sich Wärme schichten: oben bzw. am externen Fühler ist es bereits sehr warm, während tiefer im Speicher bzw. am internen Heizstabfühler noch deutlich kühlere Bereiche vorhanden sind. Damit nicht nur ein kleiner Speicherbereich heiß bleibt, gibt es zusätzlich zur normalen MaxTemp-Hysterese eine Schichtungs-Freigabe.
+
+Wenn der Heizstab wegen `Parameter.MaxTemp` ausgeschaltet wurde, darf er wieder einschalten, sobald der interne Sensor mehr als `10 K` kühler als der externe Sensor ist. Dadurch wird die Wärmeschichtung gezielt gebrochen und das komplette Speichervolumen kann besser auf eine hohe Temperatur gebracht werden. Die Sicherheitsgrenze bleibt trotzdem aktiv: Erreicht anschließend wieder einer der beiden Sensoren `Parameter.MaxTemp`, wird der Heizstab erneut ausgeschaltet.
 
 ### Unterschied Maximaltemperatur und Übertemperatur
 
 | Schutz | Default | Wirkung |
 | --- | ---: | --- |
-| Normale Maximaltemperatur `Parameter.MaxTemp` | 75 °C | Heizstab wird ausgeschaltet und erst wieder freigegeben, wenn die Temperatur um Delta-T gefallen ist. Bei 75 °C und 5 K also Freigabe erst wieder bei 70 °C. |
+| Normale Maximaltemperatur `Parameter.MaxTemp` | 75 °C | Heizstab wird ausgeschaltet, wenn intern oder extern die Maximaltemperatur erreicht ist. Freigabe erfolgt weiterhin über die bestehende Hysterese, z. B. bei 75 °C und 5 K wieder bei 70 °C am externen Sensor. Zusätzlich wird freigegeben, wenn intern mehr als 10 K kühler als extern ist. |
 | Harte Übertemperatur intern/extern | 97 °C | Sofortabschaltung ohne Rampe. Fehler ist erst quittierbar, wenn die Temperaturen wieder unter den Grenzwerten liegen. |
 
 ---
@@ -291,7 +298,7 @@ Zusätzlich gibt es **`Regelung.QuittierTaster_Blink`**. Dieser Datenpunkt blink
 | `RG001` | Regelung manuell deaktiviert | Heizstab aus. | `Regelung.ENABLE` einschalten, wenn Betrieb gewünscht ist. |
 | `RG003` | Regelung aktiv | Heizstab nutzt PV-Überschuss. | Normalzustand. |
 | `RG004` | Überschuss zu gering | Heizstab aus. | Warten auf mehr PV-Überschuss. |
-| `TP002` | Maximaltemperatur erreicht | Heizstab aus bis zur Hysterese-Freigabe. | Abkühlen lassen. |
+| `TP002` | Maximaltemperatur erreicht | Heizstab aus bis zur Hysterese-Freigabe oder bis zur Zusatz-Freigabe bei Schichtung. | Abkühlen lassen; bei starker Schichtung kann der Heizstab automatisch wieder anlaufen. |
 | `TP003` | Warmwasser-Sicherstellung aktiv/wartend | Heizstab heizt mit Sicherstellungsleistung oder wartet auf Einschaltpunkt. | Normal, wenn WW-Sicherstellung gewünscht ist. |
 | `TP004` | Harte Übertemperatur | Sofort aus, rote LED, Fehler zunächst nicht quittierbar. | Ursache prüfen; erst nach Abkühlung quittieren. |
 | `FI001` | FI/LS aus | Sofort aus, rote LED, Sperre. | FI/LS und Ursache prüfen; danach quittieren. |
