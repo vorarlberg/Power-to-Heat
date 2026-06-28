@@ -34,6 +34,7 @@ const DP = {
     heizstabPauseAktivHauptskript: '0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Aktiv',
     heizstabIstLeistungW: 'modbus.2.holdingRegisters.1.1000_Power',
 
+    shellyOnline: 'shelly.1.shellyplugsg3#d885ac17fd24#1.online',
     shellySwitch: 'shelly.1.shellyplugsg3#d885ac17fd24#1.Relay0.Switch',
     shellyPowerW: 'shelly.1.shellyplugsg3#d885ac17fd24#1.Relay0.Power'
 };
@@ -117,6 +118,10 @@ function isVisEnabled() {
     return !!getState(DP.visFreigabe)?.val;
 }
 
+function isShellyOnline() {
+    return !!getState(DP.shellyOnline)?.val;
+}
+
 function isShellyOn() {
     return !!getState(DP.shellySwitch)?.val;
 }
@@ -162,6 +167,12 @@ function sendPushover(message) {
 }
 
 function setDryer(on, reason) {
+    if (!isShellyOnline()) {
+        commandedOn = null;
+        setReason(`Schaltbefehl nicht gesendet: Shelly offline (${reason})`);
+        return;
+    }
+
     if (commandedOn === on && isShellyOn() === on) return;
 
     setState(DP.shellySwitch, on, false);
@@ -276,8 +287,9 @@ function checkTankFull(running, shellyOn) {
 
 function regulate() {
     const visEnabled = isVisEnabled();
-    const shellyOn = isShellyOn();
-    const running = isDryerRunning();
+    const shellyOnline = isShellyOnline();
+    const shellyOn = shellyOnline && isShellyOn();
+    const running = shellyOnline && isDryerRunning();
     const pufferTemp = readNumber(DP.pufferTempC, -999);
     const effectiveSurplus = getEffectivePvSurplusW(running);
     const potentialSurplus = getEffectivePvSurplusW(running, true);
@@ -289,6 +301,18 @@ function regulate() {
 
     commandedOn = shellyOn;
     setState(DP.istLaeuft, running, true);
+
+    if (!shellyOnline) {
+        pvEnoughSince = null;
+        pvLowSince = null;
+        lowPowerSince = null;
+        setState(DP.pvGenugSeit, '', true);
+        setState(DP.pvZuWenigSeit, '', true);
+        setHeizstabPauseRequest(false, 'Heizstab-Pause beendet: Shelly Lufttrockner offline');
+        setStatus('Aus: Shelly Lufttrockner offline');
+        return;
+    }
+
     updatePvTimers(pvEnough);
     checkTankFull(running, shellyOn);
 
@@ -332,6 +356,6 @@ heizstabPauseRequested = !!getState(DP.heizstabPauseRequest)?.val;
 
 schedule(TIMES.mitternachtResetCron, resetDailyLock);
 schedule(`*/${Math.max(1, Math.round(TIMES.regelIntervallMs / 1000))} * * * * *`, regulate);
-on({ id: [DP.visFreigabe, DP.pvUeberschussW, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC, DP.heizstabIstLeistungW], change: 'ne' }, regulate);
+on({ id: [DP.visFreigabe, DP.pvUeberschussW, DP.shellyOnline, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC, DP.heizstabIstLeistungW], change: 'ne' }, regulate);
 
 regulate();
