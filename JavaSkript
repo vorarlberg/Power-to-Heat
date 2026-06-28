@@ -1,6 +1,6 @@
 /************************************************************
  * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
- * Version: 2.8.2  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Version: 2.9.0  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
  * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
  ************************************************************/
 
@@ -25,7 +25,7 @@ const PUMP_SCRIPT_CHECK = {
         { name: 'Heizkreispumpe', dp: '0_userdata.0.Heizung.Heizkreispumpe.scriptVersion', expected: '1.3.0' },
         { name: 'Speicherladepumpe', dp: '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion', expected: '1.2.7' },
         { name: 'WW-Pumpe', dp: '0_userdata.0.Heizung.WW-Pumpe.ScriptVersion', expected: '1.1.0' },
-        { name: 'Lufttrockner', dp: '0_userdata.0.Heizung.Lufttrockner.ScriptVersion', expected: '1.0.0' }
+        { name: 'Lufttrockner', dp: '0_userdata.0.Heizung.Lufttrockner.ScriptVersion', expected: '1.1.0' }
     ]
 };
 
@@ -204,7 +204,11 @@ const DP = {
 
     // Selbsttest
     selfStart:          BASE + 'Selbsttest.Start',              // BUTTON
-    selfFlag:           BASE + 'Selbsttest.Aktiv'
+    selfFlag:           BASE + 'Selbsttest.Aktiv',
+
+    // Externe Verbraucher-Anforderungen
+    lufttrocknerPauseRequest: BASE + 'ExterneAnforderung.Lufttrockner_Pause_Heizstab',
+    lufttrocknerPauseAktiv:   BASE + 'ExterneAnforderung.Lufttrockner_Pause_Aktiv'
 };
 
 // --- States anlegen ---
@@ -277,6 +281,10 @@ ensureStateStrRW(DP.kalDaten, '{}', 'Kalibrierdaten JSON');
 ensureStateStrRW(DP.pwmStatus, 'n/a', 'PWM Status');
 ensureStateBoolRW(DP.kalRunning, false, 'Kalibrierung läuft');
 ensureStateBoolRW(DP.selfFlag, false, 'Selbsttest aktiv');
+
+// Lufttrockner darf diesen Eingang setzen; Aktiv ist reine Ausgabe und daher schreibgeschützt.
+ensureStateBoolRW(DP.lufttrocknerPauseRequest, false, 'Lufttrockner fordert Heizstab-Pause an');
+ensureStateBoolRO(DP.lufttrocknerPauseAktiv, 'Heizstab wegen Lufttrockner pausiert (RO)');
 
 // PWM-DP (falls nicht vorhanden, wird er angelegt – 0..99)
 ensureStateNumRW(PWM_DP, 0, 'PWM GPIO12 dutyPercent', '%', 0, 99);
@@ -1326,6 +1334,7 @@ if (!_activeFaults.has('FI001')) {
         const deltaT = Number(getState(DP.deltaT)?.val) || PARAM.deltaTRegelbereich_Default;
         const zielTemp = Number(getState(DP.wwZiel)?.val) || PARAM.wwZieltemp_Default;
         const wwAktiv = getState(DP.wwSicherAn)?.val === true;
+        const lufttrocknerPauseRequest = getState(DP.lufttrocknerPauseRequest)?.val === true;
 
         // Max-Temp (gilt immer) – beide Sensoren begrenzen den Heizstab.
         // Bestehende Freigabe bleibt erhalten: extern <= (MaxTemp - DeltaT).
@@ -1366,6 +1375,19 @@ if (!_activeFaults.has('FI001')) {
                 return;
             }
         }
+
+        // Externe Verbraucher-Anforderung: Lufttrockner bekommt Vorrang vor normalem PV-Heizbetrieb.
+        // Sicherheitsprüfungen und Max-Temp bleiben davor aktiv; WW-Sicherstellung hat weiterhin Vorrang.
+        if (lufttrocknerPauseRequest && !wwAktiv) {
+            setPWM_TargetWatt(0);
+            _pvRunning = false;
+            setState(DP.sollWattRaw, 0, true);
+            setState(DP.aktiv, false, true);
+            setState(DP.lufttrocknerPauseAktiv, true, true);
+            setState(DP.status, 'Heizstab pausiert: Lufttrockner fordert PV-Überschuss an. [EXT001]', true);
+            return;
+        }
+        setState(DP.lufttrocknerPauseAktiv, false, true);
 
         // WW-Sicherstellung (Hysterese)
         if (wwAktiv) {
@@ -1563,6 +1585,7 @@ function checkPumpScriptVersions() {
 on({ id: EXTERNAL.ueberschussW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzeinspeisung'));
 on({ id: EXTERNAL.netzverbrauchW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzverbrauch'));
 on({ id: EXTERNAL.fiHeizstabOK, change: 'ne' }, () => regelzyklus());
+on({ id: DP.lufttrocknerPauseRequest, change: 'ne' }, () => regelzyklus());
 
 // Event-getriggerte Regelung bei Geräte-Online-Statusänderungen
 on({ id: EXTERNAL.zaehlerRechtsLWT, change: 'ne' }, () => regelzyklus());

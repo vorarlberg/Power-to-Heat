@@ -6,7 +6,7 @@
  * - Shelly Plug S Gen3 schaltet den Lufttrockner
  * - Ist-Rückmeldung über Leistungsaufnahme
  * - PV-Überschuss-Freigabe mit 15-Minuten Ein-/Ausschaltverzögerung
- * - ab Pufferspeicher >= 60 °C Vorrang vor dem Heizstab
+ * - ab Pufferspeicher >= 60 °C Vorrang vor dem Heizstab per Hauptskript-Anforderung
  * - Tank-voll-/Gerät-aus-Erkennung per Leistungsabfall inkl. Pushover
  * - nach der 3. automatischen PV-Abschaltung am Tag Sperre bis Mitternacht
  */
@@ -25,12 +25,13 @@ const DP = {
     tagessperreAktiv: '0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv',
     tankMeldungAktiv: '0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv',
     heizstabPauseAktiv: '0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv',
-    heizstabWarVorPauseAktiv: '0_userdata.0.Heizung.Lufttrockner.HeizstabWarVorPauseAktiv',
     scriptVersion: '0_userdata.0.Heizung.Lufttrockner.ScriptVersion',
 
     pvUeberschussW: '0_userdata.0.Strom.Netzeinspeisung',
     pufferTempC: 'modbus.2.holdingRegisters.1.1030_Temp_2',
-    heizstabEnable: '0_userdata.0.Heizstab.V2.Regelung.ENABLE',
+    heizstabPauseRequest: '0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Heizstab',
+    heizstabPauseAktivHauptskript: '0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Aktiv',
+    heizstabIstLeistungW: 'modbus.2.holdingRegisters.1.1000_Power',
 
     shellySwitch: 'shelly.1.shellyplugsg3#d885ac17fd24#1.Relay0.Switch',
     shellyPowerW: 'shelly.1.shellyplugsg3#d885ac17fd24#1.Relay0.Power'
@@ -43,6 +44,7 @@ const TIMES = {
     regelIntervallMs: 30000,
     pvEinVerzoegerungMs: 15 * 60 * 1000,
     pvAusVerzoegerungMs: 15 * 60 * 1000,
+    heizstabFreigabeNachlaufMs: 2 * 60 * 1000,
     tankVollErkennungMs: 2 * 60 * 1000,
     startLeistungsIgnorierenMs: 60 * 1000,
     mitternachtResetCron: '0 0 * * *'
@@ -52,7 +54,7 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.0.0',
+    scriptVersion: '1.1.0',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
@@ -68,7 +70,8 @@ const PARAM = {
 // Interne Zustände
 // =======================
 let commandedOn = null;
-let heizstabWasEnabledBeforePause = null;
+let heizstabPauseRequested = false;
+let heizstabPauseKeepUntil = 0;
 let lowPowerSince = null;
 let lastSwitchOnAt = 0;
 let pvEnoughSince = null;
@@ -76,7 +79,6 @@ let pvLowSince = null;
 let dailyStopCount = 0;
 let dayLockActive = false;
 let tankNotificationActive = false;
-let heizstabPauseActive = false;
 
 // =======================
 // Datenpunkte anlegen
@@ -100,7 +102,6 @@ function initStates() {
     ensureState(DP.tagessperreAktiv, false, { name: 'Lufttrockner Tagessperre aktiv', type: 'boolean', role: 'indicator', read: true, write: false });
     ensureState(DP.tankMeldungAktiv, false, { name: 'Lufttrockner Tankmeldung aktiv', type: 'boolean', role: 'indicator', read: true, write: false });
     ensureState(DP.heizstabPauseAktiv, false, { name: 'Lufttrockner Heizstab-Pause aktiv', type: 'boolean', role: 'indicator', read: true, write: false });
-    ensureState(DP.heizstabWarVorPauseAktiv, false, { name: 'Lufttrockner Heizstab war vor Pause aktiv', type: 'boolean', role: 'indicator', read: true, write: false });
     ensureState(DP.scriptVersion, PARAM.scriptVersion, { name: 'Lufttrockner Skriptversion', type: 'string', role: 'text', read: true, write: false });
     setState(DP.scriptVersion, PARAM.scriptVersion, true);
 }
@@ -126,9 +127,15 @@ function isDryerRunning() {
     return getDryerPower() >= PARAM.runningPowerMinW;
 }
 
-function getEffectivePvSurplusW(running) {
+function getHeizstabPower() {
+    return readNumber(DP.heizstabIstLeistungW, 0);
+}
+
+function getEffectivePvSurplusW(running, includeHeizstab = false) {
     const surplus = readNumber(DP.pvUeberschussW, 0);
-    return running ? surplus + getDryerPower() : surplus;
+    const dryerPower = running ? getDryerPower() : 0;
+    const heizstabPower = includeHeizstab ? getHeizstabPower() : 0;
+    return surplus + dryerPower + heizstabPower;
 }
 
 function setStatus(text) {
@@ -167,25 +174,44 @@ function setDryer(on, reason) {
     }
 }
 
-function updateHeizstabPriority(visEnabled, locked, pufferTemp, pvEnough) {
-    const shouldPause = visEnabled && !locked && pufferTemp >= PARAM.pufferVorrangAbC && pvEnough;
+function setHeizstabPauseRequest(on, reason) {
+    if (heizstabPauseRequested === on && !!getState(DP.heizstabPauseRequest)?.val === on) return;
 
-    if (shouldPause && !heizstabPauseActive) {
-        heizstabWasEnabledBeforePause = !!getState(DP.heizstabEnable)?.val;
-        setState(DP.heizstabWarVorPauseAktiv, heizstabWasEnabledBeforePause, true);
-        if (heizstabWasEnabledBeforePause) setState(DP.heizstabEnable, false, false);
-        heizstabPauseActive = true;
-        setState(DP.heizstabPauseAktiv, true, true);
-        setReason(`Heizstab pausiert: Lufttrockner-Vorrang ab ${PARAM.pufferVorrangAbC} °C Puffertemperatur`);
-    } else if (!shouldPause && heizstabPauseActive) {
-        if (heizstabWasEnabledBeforePause) setState(DP.heizstabEnable, true, false);
-        heizstabWasEnabledBeforePause = null;
-        setState(DP.heizstabWarVorPauseAktiv, false, true);
-        heizstabPauseActive = false;
-        setState(DP.heizstabPauseAktiv, false, true);
-        setReason('Heizstab-Pause beendet');
-    }
+    setState(DP.heizstabPauseRequest, on, false);
+    heizstabPauseRequested = on;
+    setState(DP.heizstabPauseAktiv, on, true);
+    setReason(reason);
 }
+
+function updateHeizstabPriority(visEnabled, locked, pufferTemp, potentialSurplus, dryerDemandActive) {
+    const now = Date.now();
+    const enoughPotentialPv = potentialSurplus >= PARAM.minPvUeberschussW;
+
+    if (!visEnabled || locked) {
+        heizstabPauseKeepUntil = 0;
+        setHeizstabPauseRequest(false, !visEnabled ? 'Heizstab-Pause beendet: VIS-Freigabe aus' : 'Heizstab-Pause beendet: Tagessperre aktiv');
+        return false;
+    }
+    const shouldRequest = visEnabled
+        && !locked
+        && pufferTemp >= PARAM.pufferVorrangAbC
+        && enoughPotentialPv
+        && dryerDemandActive;
+
+    if (shouldRequest) {
+        heizstabPauseKeepUntil = now + TIMES.heizstabFreigabeNachlaufMs;
+        setHeizstabPauseRequest(true, `Heizstab-Pause beim Hauptskript angefordert: Lufttrockner-Vorrang ab ${PARAM.pufferVorrangAbC} °C, PV-Potential ${Math.round(potentialSurplus)} W`);
+        return true;
+    }
+
+    if (heizstabPauseRequested && now < heizstabPauseKeepUntil) {
+        return true;
+    }
+
+    setHeizstabPauseRequest(false, 'Heizstab-Pause beim Hauptskript beendet');
+    return false;
+}
+
 
 function resetDailyLock() {
     dailyStopCount = 0;
@@ -250,13 +276,16 @@ function regulate() {
     const running = isDryerRunning();
     const pufferTemp = readNumber(DP.pufferTempC, -999);
     const effectiveSurplus = getEffectivePvSurplusW(running);
-    const pvEnough = effectiveSurplus >= PARAM.minPvUeberschussW;
+    const potentialSurplus = getEffectivePvSurplusW(running, true);
+    const dryerDemandActive = visEnabled && (!shellyOn || running);
+    const heizstabPauseRequestedNow = updateHeizstabPriority(visEnabled, dayLockActive, pufferTemp, potentialSurplus, dryerDemandActive);
+    const pvForDecision = heizstabPauseRequestedNow ? potentialSurplus : effectiveSurplus;
+    const pvEnough = pvForDecision >= PARAM.minPvUeberschussW;
     const now = Date.now();
 
     commandedOn = shellyOn;
     setState(DP.istLaeuft, running, true);
     updatePvTimers(pvEnough);
-    updateHeizstabPriority(visEnabled, dayLockActive, pufferTemp, pvEnough);
     checkTankFull(running, shellyOn);
 
     if (!visEnabled) {
@@ -278,7 +307,7 @@ function regulate() {
             return;
         }
 
-        setStatus(`Ein: PV effektiv ${Math.round(effectiveSurplus)} W, Leistung ${Math.round(getDryerPower())} W`);
+        setStatus(`Ein: PV effektiv ${Math.round(effectiveSurplus)} W, PV-Potential ${Math.round(potentialSurplus)} W, Leistung ${Math.round(getDryerPower())} W`);
         return;
     }
 
@@ -288,18 +317,17 @@ function regulate() {
         return;
     }
 
-    setStatus(`Warten: PV effektiv ${Math.round(effectiveSurplus)} W von ${PARAM.minPvUeberschussW} W benötigt`);
+    setStatus(`Warten: PV effektiv ${Math.round(effectiveSurplus)} W, PV-Potential ${Math.round(potentialSurplus)} W von ${PARAM.minPvUeberschussW} W benötigt`);
 }
 
 initStates();
 dailyStopCount = readNumber(DP.abschaltungenHeute, 0);
 dayLockActive = !!getState(DP.tagessperreAktiv)?.val;
 tankNotificationActive = !!getState(DP.tankMeldungAktiv)?.val;
-heizstabPauseActive = !!getState(DP.heizstabPauseAktiv)?.val;
-heizstabWasEnabledBeforePause = !!getState(DP.heizstabWarVorPauseAktiv)?.val;
+heizstabPauseRequested = !!getState(DP.heizstabPauseRequest)?.val;
 
 schedule(TIMES.mitternachtResetCron, resetDailyLock);
 schedule(`*/${Math.max(1, Math.round(TIMES.regelIntervallMs / 1000))} * * * * *`, regulate);
-on({ id: [DP.visFreigabe, DP.pvUeberschussW, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC], change: 'ne' }, regulate);
+on({ id: [DP.visFreigabe, DP.pvUeberschussW, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC, DP.heizstabIstLeistungW], change: 'ne' }, regulate);
 
 regulate();
