@@ -17,6 +17,7 @@ Die Steuerung übernimmt im Alltag:
 - Warmwasser-Sicherstellung bei zu niedriger Speichertemperatur.
 - Schutz bei Übertemperatur, FI/LS-Ausfall, Offline-Geräten und Leistungsabweichungen.
 - Koordination von Speicherladepumpe, Heizkreispumpe und Warmwasser-Zirkulationspumpe.
+- PV-geführte Einbindung eines Lufttrockners mit Heizstab-Reserve.
 - Anzeige von Status, Fehlern, LED-Farben und Meldungslog.
 
 ---
@@ -251,6 +252,18 @@ Verhalten nach Betriebsart:
 
 Wenn die Speicherladepumpe im Heizstabbetrieb automatisch (`ManualMode = AUTO`) startet, wird der vorherige Zustand der Heizkreispumpe gespeichert. Danach wird die Heizkreispumpe ausgeschaltet, damit Warmwasser Vorrang hat. Wenn die Speicherladepumpe wieder aus ist, wird der vorherige Zustand wiederhergestellt. Manuelles `ON` oder `OFF` der Speicherladepumpe löst keinen Warmwasser-Vorrang aus und schaltet die Heizkreispumpe nicht um.
 
+#### Sommer-Freilauf
+
+Damit die Heizkreispumpe außerhalb der Heizperiode nicht festsetzt, besitzt sie einen automatischen Sommer-Freilauf:
+
+- Prüfung alle 15 Minuten.
+- Geplanter Freilauf alle 7 Tage.
+- Laufzeit 15 Minuten.
+- Bevorzugter Start erst bei Puffertemperatur ab 85 °C.
+- Wenn diese Temperatur nach 1 Tag Wartezeit nicht erreicht wurde, wird der Freilauf zum nächsten Mittag um 12:00 Uhr erzwungen.
+
+Anzeigen dazu liegen unter `0_userdata.0.Heizung.Heizkreispumpe.summerExercise.*`, z. B. letzter Lauf, aktiver Freilauf und nächste Fälligkeit.
+
 ### Warmwasser-Zirkulationspumpe
 
 Die Warmwasser-Zirkulationspumpe läuft unabhängig von der Heizstableistungsregelung. Sie kann zeitgesteuert oder manuell betrieben werden.
@@ -271,6 +284,32 @@ Verhalten:
 - In `on` bleibt die Pumpe dauerhaft an, sofern der Shelly online ist.
 - In `off` bleibt sie aus.
 - Wenn der Shelly offline ist, startet sie nicht und zeigt `Offline`.
+
+
+### Lufttrockner
+
+Der Lufttrockner ist ein zusätzlicher PV-Verbraucher. Er wird über die VIS-Freigabe eingeschaltet, wenn genug PV-Überschuss für längere Zeit vorhanden ist.
+
+Wichtige Bedien- und Anzeige-Datenpunkte:
+
+| Datenpunkt | Bedeutung |
+| --- | --- |
+| `0_userdata.0.Heizung.Lufttrockner.Freigabe` | Anwenderfreigabe. Ohne Freigabe bleibt der Lufttrockner aus. |
+| `0_userdata.0.Heizung.Lufttrockner.IstLaeuft` | Zeigt anhand der gemessenen Leistung, ob das Gerät wirklich läuft. |
+| `0_userdata.0.Heizung.Lufttrockner.Status` | Klartextstatus. |
+| `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Letzter Schalt- oder Sperrgrund. |
+| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag. |
+| `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Aktiv nach 3 automatischen PV-Abschaltungen; Reset um Mitternacht. |
+| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall. |
+| `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Zeigt, dass eine Heizstab-Reserve angefordert wird. |
+
+Verhalten:
+
+- Einschalten erst bei ausreichend PV-Überschuss über 15 Minuten.
+- Ausschalten erst bei zu wenig PV über 15 Minuten.
+- Nach der 3. automatischen PV-Abschaltung wird bis Mitternacht gesperrt.
+- Ab ca. 60 °C Puffertemperatur darf der Lufttrockner beim Hauptskript eine Leistungsreserve anfordern.
+- Der Heizstab kann dann reduziert weiterlaufen, solange genug PV-Strom für beide Verbraucher verfügbar ist.
 
 ---
 
@@ -373,5 +412,6 @@ Während der Kalibrierung wird die normale Regelung pausiert.
 | Grün an, Heizstab aus | Standby / zu wenig Überschuss | PV-Leistung, Netzbezug, Status `RG004`. |
 | Grün + Gelb | Warmwasser-Sicherstellung | WW-Temperatur, Zieltemperatur und Delta-T prüfen. |
 | Pumpe läuft nicht | Manuell aus, Shelly offline, Bypass, Temperaturbedingung nicht erfüllt | Pumpenstatus, Online-Status, ManualMode, grüner Punkt in Visualisierung. |
+| Lufttrockner bleibt aus | Freigabe aus, zu wenig PV, Tagessperre aktiv, Shelly offline oder Tank-/Gerätemeldung | Lufttrockner-Status, letzter Schaltgrund, Freigabe und Abschaltungen heute prüfen. |
 | Speicherladepumpe läuft, Heizkreispumpe aus | Warmwasser-Vorrang | Normal im Heizstabbetrieb. |
 | Fehler lässt sich nicht quittieren | Ursache liegt noch an | Fehlerstatus und physikalische Ursache prüfen. |
