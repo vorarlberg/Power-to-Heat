@@ -33,6 +33,7 @@ Die Automatisierung übernimmt dabei:
 | `Speicherladepumpe` | Unterskript | Steuert die Speicherladepumpe über GPIO17/GPIO18 abhängig von Betriebsmodus, Temperatur, Kessel-Freigabe, Bypass und Shelly-Status. |
 | `Heizkreispumpe` | Unterskript | Steuert die Heizkreispumpe über Shelly-Impuls/Stromstoßrelais und berücksichtigt Speicherladepumpen-Vorrang. |
 | `Warm-water-circulation-pump-control` | Unterskript | Steuert die Warmwasser-Zirkulationspumpe zeitgesteuert oder manuell über Shelly/Alias-DPs. |
+| `Lufttrockner` | Unterskript / Verbraucherlogik | Steuert einen PV-geführten Lufttrockner, reserviert bei Bedarf PV-Leistung und fordert beim Hauptskript eine Heizstab-Pause bzw. Leistungsreserve an. |
 | `List_of_Status_Codes` | Referenz | Übersicht der Status- und Fehlercodes für Diagnose und Visualisierung. |
 
 ---
@@ -581,6 +582,50 @@ Externe DPs:
 
 ---
 
+## 🌬️ Unterskript `Lufttrockner`
+
+Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusätzlichen PV-Verbraucher. Es arbeitet unabhängig von der Heizstabregelung, kann dem Hauptskript aber melden, dass der Heizstab Leistung freihalten soll. Das Hauptskript erwartet Version `1.1.2` unter `0_userdata.0.Heizung.Lufttrockner.ScriptVersion`.
+
+### Datenpunkte und externe Kopplung
+
+| Datenpunkt | Richtung | Bedeutung |
+| --- | --- | --- |
+| `0_userdata.0.Heizung.Lufttrockner.Freigabe` | Eingabe | VIS-Freigabe für den Lufttrockner. |
+| `0_userdata.0.Heizung.Lufttrockner.IstLaeuft` | Ausgabe | Aus der Shelly-Leistung abgeleiteter Laufzustand. |
+| `0_userdata.0.Heizung.Lufttrockner.Status` | Ausgabe | Klartextstatus der Verbraucherlogik. |
+| `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Ausgabe | Letzter Grund für Ein-/Ausschalten oder Sperre. |
+| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Ausgabe | Zählt automatische PV-Abschaltungen am laufenden Tag. |
+| `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Ausgabe | Sperrt nach zu vielen automatischen Abschaltungen bis Mitternacht. |
+| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Ausgabe | Meldung bei Leistungsabfall, z. B. Tank voll oder Gerät aus. |
+| `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Ausgabe | Zeigt, ob aktuell eine Heizstab-Reserve/Pause angefordert wird. |
+| `0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Heizstab` | Ausgabe an Hauptskript | Reservierungs-/Pauseanforderung für den Heizstab. |
+| `0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Aktiv` | Rückmeldung vom Hauptskript | Zeigt, ob das Hauptskript die Anforderung berücksichtigt. |
+
+### Zeiten und Parameter
+
+| Parameter | Wert | Wirkung |
+| --- | ---: | --- |
+| `TIMES.regelIntervallMs` | `30000 ms` | Regelzyklus. |
+| `TIMES.pvEinVerzoegerungMs` | `15 min` | PV-Überschuss muss so lange ausreichend sein, bevor eingeschaltet wird. |
+| `TIMES.pvAusVerzoegerungMs` | `15 min` | Zu wenig PV muss so lange anliegen, bevor automatisch ausgeschaltet wird. |
+| `TIMES.heizstabFreigabeNachlaufMs` | `2 min` | Reserveanforderung bleibt nachlaufend aktiv. |
+| `PARAM.minPvUeberschussW` | `1000 W` | Mindestüberschuss für Lufttrocknerbetrieb. |
+| `PARAM.geraeteLeistungW` | `800 W` | angenommene Geräteleistung für Bilanz/Reserve. |
+| `PARAM.runningPowerMinW` | `100 W` | Mindestleistung, ab der das Gerät als laufend gilt. |
+| `PARAM.pufferVorrangAbC` | `60 °C` | Ab dieser Puffertemperatur darf der Lufttrockner Heizstab-Reserve anfordern. |
+| `PARAM.heizstabReserveFreigabeHystereseW` | `200 W` | Hysterese für Reservefreigabe. |
+| `PARAM.maxPvAbschaltungenProTag` | `3` | Danach Tagessperre bis Mitternacht. |
+
+### Zusammenspiel mit dem Heizstab
+
+- Unterhalb `60 °C` Puffertemperatur hat die Wärmeerzeugung Vorrang.
+- Ab `60 °C` Puffertemperatur kann der Lufttrockner bei Bedarf eine Reserve anfordern.
+- Das Hauptskript hält dafür `LIMITS.lufttrocknerReserveW = 1000 W` frei und kann die Heizstableistung entsprechend reduzieren.
+- Dadurch kann der Heizstab weiter mit restlichem PV-Überschuss laufen, solange genug Leistung für den Lufttrockner übrig bleibt.
+
+
+---
+
 ## 🧯 Sicherheits- und Fehlerkonzept
 
 | Code / Zustand | Auslöser | Aktion | Quittierung |
@@ -617,6 +662,7 @@ flowchart LR
         SP["Speicherladepumpe"]
         HK["Heizkreispumpe"]
         WW["Warm-water-circulation-pump-control"]
+        LT["Lufttrockner"]
         CODES["List_of_Status_Codes"]
     end
 
@@ -625,6 +671,7 @@ flowchart LR
         P1["Speicherladepumpe"]
         P2["Heizkreispumpe"]
         P3["WW-Zirkulationspumpe"]
+        DRY["Lufttrockner"]
         LED["Status-LEDs / Ampel"]
     end
 
@@ -647,6 +694,8 @@ flowchart LR
     SP --> P1
     HK --> P2
     WW --> P3
+    LT --> DRY
+    LT --> MAIN
 
     INDP --> MAIN
     INDP --> SP
@@ -713,7 +762,9 @@ flowchart LR
 | Nachtfenster | `JavaSkript` → `QUIET.offlineCheckOffFromHour` / `offlineCheckOffToHour` |
 | Speicherladepumpen-Temperaturen | `Speicherladepumpe` → `ON_BELOW_TEMP`, `OFF_ABOVE_TEMP`, `MAX_OVER_TEMP_DEFAULT`, `SAFETY_RESET_HYSTERESIS_K`, DP `Parameter.SicherheitsabschaltungEin`, `WW_TEMP_VALID_MIN`, `WW_TEMP_VALID_MAX` |
 | Heizkreispumpen-Impulsdauer | `Heizkreispumpe` → `PULSE_MS` |
+| Heizkreispumpen-Sommer-Freilauf | `Heizkreispumpe` → `SUMMER_EXERCISE_*` |
 | WW-Zirkulationspumpen-Laufzeit | `Warm-water-circulation-pump-control` → `DEFAULT_DURATION_MIN` oder DP `LaufzeitMin` |
+| Lufttrockner-Zeiten und PV-Schwellen | `Lufttrockner` → `TIMES.*` und `PARAM.*` |
 
 ---
 
