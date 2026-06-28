@@ -6,7 +6,8 @@
  * - Shelly Plug S Gen3 schaltet den Lufttrockner
  * - Ist-Rückmeldung über Leistungsaufnahme
  * - PV-Überschuss-Freigabe mit 15-Minuten Ein-/Ausschaltverzögerung
- * - ab Pufferspeicher >= 60 °C Vorrang vor dem Heizstab per Hauptskript-Anforderung
+ * - ab Pufferspeicher >= 60 °C fordert der Lufttrockner nur bei Bedarf eine Heizstab-Reserve an
+ * - der Heizstab läuft mit restlichem PV-Überschuss weiter, solange genug PV-Strom für den Lufttrockner bleibt
  * - Tank-voll-/Gerät-aus-Erkennung per Leistungsabfall inkl. Pushover
  * - nach der 3. automatischen PV-Abschaltung am Tag Sperre bis Mitternacht
  */
@@ -54,11 +55,12 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.1.0',
+    scriptVersion: '1.1.2',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
     pufferVorrangAbC: 60,
+    heizstabReserveFreigabeHystereseW: 200,
     maxPvAbschaltungenProTag: 3,
     pushoverEnabled: true,
     pushoverAdapter: 'pushover',
@@ -183,9 +185,10 @@ function setHeizstabPauseRequest(on, reason) {
     setReason(reason);
 }
 
-function updateHeizstabPriority(visEnabled, locked, pufferTemp, potentialSurplus, dryerDemandActive) {
+function updateHeizstabPriority(visEnabled, locked, pufferTemp, effectiveSurplus, potentialSurplus, dryerDemandActive) {
     const now = Date.now();
     const enoughPotentialPv = potentialSurplus >= PARAM.minPvUeberschussW;
+    const actualSurplusTooLow = effectiveSurplus < (PARAM.minPvUeberschussW + PARAM.heizstabReserveFreigabeHystereseW);
 
     if (!visEnabled || locked) {
         heizstabPauseKeepUntil = 0;
@@ -196,19 +199,20 @@ function updateHeizstabPriority(visEnabled, locked, pufferTemp, potentialSurplus
         && !locked
         && pufferTemp >= PARAM.pufferVorrangAbC
         && enoughPotentialPv
+        && actualSurplusTooLow
         && dryerDemandActive;
 
     if (shouldRequest) {
         heizstabPauseKeepUntil = now + TIMES.heizstabFreigabeNachlaufMs;
-        setHeizstabPauseRequest(true, `Heizstab-Pause beim Hauptskript angefordert: Lufttrockner-Vorrang ab ${PARAM.pufferVorrangAbC} °C, PV-Potential ${Math.round(potentialSurplus)} W`);
+        setHeizstabPauseRequest(true, `Heizstab-Reserve beim Hauptskript angefordert: Lufttrockner braucht ${PARAM.minPvUeberschussW} W, aktuell frei ${Math.round(effectiveSurplus)} W, PV-Potential ${Math.round(potentialSurplus)} W`);
         return true;
     }
 
-    if (heizstabPauseRequested && now < heizstabPauseKeepUntil) {
+    if (heizstabPauseRequested && now < heizstabPauseKeepUntil && actualSurplusTooLow) {
         return true;
     }
 
-    setHeizstabPauseRequest(false, 'Heizstab-Pause beim Hauptskript beendet');
+    setHeizstabPauseRequest(false, 'Heizstab-Reserve beim Hauptskript beendet: genug freier PV-Überschuss für Lufttrockner');
     return false;
 }
 
@@ -278,7 +282,7 @@ function regulate() {
     const effectiveSurplus = getEffectivePvSurplusW(running);
     const potentialSurplus = getEffectivePvSurplusW(running, true);
     const dryerDemandActive = visEnabled && (!shellyOn || running);
-    const heizstabPauseRequestedNow = updateHeizstabPriority(visEnabled, dayLockActive, pufferTemp, potentialSurplus, dryerDemandActive);
+    const heizstabPauseRequestedNow = updateHeizstabPriority(visEnabled, dayLockActive, pufferTemp, effectiveSurplus, potentialSurplus, dryerDemandActive);
     const pvForDecision = heizstabPauseRequestedNow ? potentialSurplus : effectiveSurplus;
     const pvEnough = pvForDecision >= PARAM.minPvUeberschussW;
     const now = Date.now();

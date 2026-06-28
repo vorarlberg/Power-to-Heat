@@ -89,8 +89,8 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.3.0`, Speicherladepumpe `1.2.7`, WW-Pumpe `1.1.0` und Lufttrockner `1.0.0` melden. |
-| `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, WW-Min `30 °C`, WW-Max `75 °C`, MaxTemp-Wiedereinschaltung über Delta-T-Hysterese oder zusätzlich wenn intern mehr als `10 K` kühler als extern ist, Übertemperatur intern/extern je `97 °C`. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.3.0`, Speicherladepumpe `1.2.7`, WW-Pumpe `1.1.0` und Lufttrockner `1.1.2` melden. |
+| `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, Lufttrockner-Reserve `1000 W`, WW-Min `30 °C`, WW-Max `75 °C`, MaxTemp-Wiedereinschaltung über Delta-T-Hysterese oder zusätzlich wenn intern mehr als `10 K` kühler als extern ist, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
 | `QUIET` | Nachtmodus für Online-Checks | Online-Prüfungen sind von `22:00` bis `04:00` pausiert. |

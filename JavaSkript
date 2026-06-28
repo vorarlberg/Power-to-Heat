@@ -1,6 +1,6 @@
 /************************************************************
  * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
- * Version: 2.9.0  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Version: 2.9.1  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
  * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
  ************************************************************/
 
@@ -25,7 +25,7 @@ const PUMP_SCRIPT_CHECK = {
         { name: 'Heizkreispumpe', dp: '0_userdata.0.Heizung.Heizkreispumpe.scriptVersion', expected: '1.3.0' },
         { name: 'Speicherladepumpe', dp: '0_userdata.0.Heizung.Speicherladepumpe.scriptVersion', expected: '1.2.7' },
         { name: 'WW-Pumpe', dp: '0_userdata.0.Heizung.WW-Pumpe.ScriptVersion', expected: '1.1.0' },
-        { name: 'Lufttrockner', dp: '0_userdata.0.Heizung.Lufttrockner.ScriptVersion', expected: '1.1.0' }
+        { name: 'Lufttrockner', dp: '0_userdata.0.Heizung.Lufttrockner.ScriptVersion', expected: '1.1.2' }
     ]
 };
 
@@ -33,6 +33,7 @@ const PUMP_SCRIPT_CHECK = {
 const LIMITS = {
     maxPowerW: 3500,
     hystereseW: 100,
+    lufttrocknerReserveW: 1000, // Bei Lufttrockner-Anforderung bleibt diese Leistung für den Lufttrockner frei
     wwTempMinDefault: 30,
     wwTempMaxDefault: 75,
     maxTempInternExternDiffReleaseK: 10, // Zusatz-Freigabe nach MaxTemp: intern muss mehr als 10 K kühler als extern sein
@@ -1376,18 +1377,11 @@ if (!_activeFaults.has('FI001')) {
             }
         }
 
-        // Externe Verbraucher-Anforderung: Lufttrockner bekommt Vorrang vor normalem PV-Heizbetrieb.
+        // Externe Verbraucher-Anforderung: Der Lufttrockner bekommt nur die nötige PV-Reserve.
+        // Der Heizstab wird nicht pauschal pausiert, sondern im PV-Betrieb nur reduziert oder bei Bedarf ausgeschaltet.
         // Sicherheitsprüfungen und Max-Temp bleiben davor aktiv; WW-Sicherstellung hat weiterhin Vorrang.
-        if (lufttrocknerPauseRequest && !wwAktiv) {
-            setPWM_TargetWatt(0);
-            _pvRunning = false;
-            setState(DP.sollWattRaw, 0, true);
-            setState(DP.aktiv, false, true);
-            setState(DP.lufttrocknerPauseAktiv, true, true);
-            setState(DP.status, 'Heizstab pausiert: Lufttrockner fordert PV-Überschuss an. [EXT001]', true);
-            return;
-        }
-        setState(DP.lufttrocknerPauseAktiv, false, true);
+        const lufttrocknerReserveAktiv = lufttrocknerPauseRequest && !wwAktiv;
+        setState(DP.lufttrocknerPauseAktiv, lufttrocknerReserveAktiv, true);
 
         // WW-Sicherstellung (Hysterese)
         if (wwAktiv) {
@@ -1464,16 +1458,21 @@ if (!_activeFaults.has('FI001')) {
         const pvOnSchwelle = 500 + LIMITS.hystereseW;
         const pvOffSchwelle = 500 - LIMITS.hystereseW;
 
-        const pvOK = _pvRunning ? (ueberschuss > pvOffSchwelle) : (ueberschuss > pvOnSchwelle);
+        const ueberschussHeizstab = lufttrocknerReserveAktiv
+            ? Math.max(0, ueberschuss - LIMITS.lufttrocknerReserveW)
+            : ueberschuss;
+        const pvOK = _pvRunning ? (ueberschussHeizstab > pvOffSchwelle) : (ueberschussHeizstab > pvOnSchwelle);
 
         if (pvOK) {
-            let sollWattRaw = clamp(ueberschuss - LIMITS.hystereseW, 0, LIMITS.maxPowerW);
+            let sollWattRaw = clamp(ueberschussHeizstab - LIMITS.hystereseW, 0, LIMITS.maxPowerW);
             setState(DP.sollWattRaw, Math.round(sollWattRaw), true);
 
             const pwm = kalibrierteLeistung(sollWattRaw);
             setPWM_TargetWatt(pwm);
             setState(DP.aktiv, true, true);
-            setState(DP.status, 'Regelung aktiv. [RG003]', true);
+            setState(DP.status, lufttrocknerReserveAktiv
+                ? `Regelung aktiv mit Lufttrockner-Reserve ${LIMITS.lufttrocknerReserveW} W. [RG003]`
+                : 'Regelung aktiv. [RG003]', true);
             _pvRunning = true;
 
             const tokenPV = _targetToken;
@@ -1504,7 +1503,9 @@ if (!_activeFaults.has('FI001')) {
             setPWM_TargetWatt(0);
             _pvRunning = false;
             setState(DP.sollWattRaw, 0, true);
-            setState(DP.status, 'Überschuss zu gering. Heizstab aus. [RG004]', true);
+            setState(DP.status, lufttrocknerReserveAktiv
+                ? `Überschuss nach Lufttrockner-Reserve ${LIMITS.lufttrocknerReserveW} W zu gering. Heizstab aus. [RG004]`
+                : 'Überschuss zu gering. Heizstab aus. [RG004]', true);
             setState(DP.aktiv, false, true);
         }
     } finally {
