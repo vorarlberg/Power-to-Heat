@@ -2,7 +2,7 @@
  * Lufttrockner Steuerung - ioBroker
  *
  * Funktionen:
- * - VIS-Freigabe per Schalter
+ * - VIS-Betriebsmodus per Auswahl: Auto / Ein / Aus
  * - Shelly Plug S Gen3 schaltet den Lufttrockner
  * - Ist-Rückmeldung über Leistungsaufnahme
  * - PV-Überschuss-Freigabe mit 15-Minuten Ein-/Ausschaltverzögerung
@@ -16,7 +16,8 @@
 // Datenpunkte
 // =======================
 const DP = {
-    visFreigabe: '0_userdata.0.Heizung.Lufttrockner.Freigabe',
+    visBetriebsmodus: '0_userdata.0.Heizung.Lufttrockner.Betriebsmodus',
+    visFreigabeAlt: '0_userdata.0.Heizung.Lufttrockner.Freigabe',
     istLaeuft: '0_userdata.0.Heizung.Lufttrockner.IstLaeuft',
     status: '0_userdata.0.Heizung.Lufttrockner.Status',
     letzterSchaltgrund: '0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund',
@@ -56,7 +57,7 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.1.2',
+    scriptVersion: '1.2.0',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
@@ -95,7 +96,19 @@ function ensureState(id, initialValue, common) {
 }
 
 function initStates() {
-    ensureState(DP.visFreigabe, false, { name: 'Lufttrockner Freigabe VIS', type: 'boolean', role: 'switch', read: true, write: true });
+    const defaultMode = existsObject(DP.visFreigabeAlt) && getState(DP.visFreigabeAlt)?.val ? 'Auto' : 'Aus';
+    ensureState(DP.visBetriebsmodus, defaultMode, {
+        name: 'Lufttrockner Betriebsmodus VIS',
+        type: 'string',
+        role: 'text',
+        read: true,
+        write: true,
+        states: {
+            Auto: 'Auto',
+            Ein: 'Ein',
+            Aus: 'Aus'
+        }
+    });
     ensureState(DP.istLaeuft, false, { name: 'Lufttrockner läuft', type: 'boolean', role: 'indicator.working', read: true, write: false });
     ensureState(DP.status, 'Initialisierung', { name: 'Lufttrockner Status', type: 'string', role: 'text', read: true, write: false });
     ensureState(DP.letzterSchaltgrund, '', { name: 'Lufttrockner letzter Schaltgrund', type: 'string', role: 'text', read: true, write: false });
@@ -114,8 +127,21 @@ function readNumber(id, fallback = 0) {
     return isNaN(value) ? fallback : value;
 }
 
-function isVisEnabled() {
-    return !!getState(DP.visFreigabe)?.val;
+function getVisMode() {
+    const mode = String(getState(DP.visBetriebsmodus)?.val || 'Aus');
+    return ['Auto', 'Ein', 'Aus'].includes(mode) ? mode : 'Aus';
+}
+
+function isAutoMode() {
+    return getVisMode() === 'Auto';
+}
+
+function isOnMode() {
+    return getVisMode() === 'Ein';
+}
+
+function isDryerEnabledByMode() {
+    return isAutoMode() || isOnMode();
 }
 
 function isShellyOnline() {
@@ -196,17 +222,17 @@ function setHeizstabPauseRequest(on, reason) {
     setReason(reason);
 }
 
-function updateHeizstabPriority(visEnabled, locked, pufferTemp, effectiveSurplus, potentialSurplus, dryerDemandActive) {
+function updateHeizstabPriority(autoMode, locked, pufferTemp, effectiveSurplus, potentialSurplus, dryerDemandActive) {
     const now = Date.now();
     const enoughPotentialPv = potentialSurplus >= PARAM.minPvUeberschussW;
     const actualSurplusTooLow = effectiveSurplus < (PARAM.minPvUeberschussW + PARAM.heizstabReserveFreigabeHystereseW);
 
-    if (!visEnabled || locked) {
+    if (!autoMode || locked) {
         heizstabPauseKeepUntil = 0;
-        setHeizstabPauseRequest(false, !visEnabled ? 'Heizstab-Pause beendet: VIS-Freigabe aus' : 'Heizstab-Pause beendet: Tagessperre aktiv');
+        setHeizstabPauseRequest(false, !autoMode ? 'Heizstab-Pause beendet: Betriebsmodus nicht Auto' : 'Heizstab-Pause beendet: Tagessperre aktiv');
         return false;
     }
-    const shouldRequest = visEnabled
+    const shouldRequest = autoMode
         && !locked
         && pufferTemp >= PARAM.pufferVorrangAbC
         && enoughPotentialPv
@@ -286,15 +312,17 @@ function checkTankFull(running, shellyOn) {
 }
 
 function regulate() {
-    const visEnabled = isVisEnabled();
+    const autoMode = isAutoMode();
+    const onMode = isOnMode();
+    const dryerEnabled = isDryerEnabledByMode();
     const shellyOnline = isShellyOnline();
     const shellyOn = shellyOnline && isShellyOn();
     const running = shellyOnline && isDryerRunning();
     const pufferTemp = readNumber(DP.pufferTempC, -999);
     const effectiveSurplus = getEffectivePvSurplusW(running);
     const potentialSurplus = getEffectivePvSurplusW(running, true);
-    const dryerDemandActive = visEnabled && (!shellyOn || running);
-    const heizstabPauseRequestedNow = updateHeizstabPriority(visEnabled, dayLockActive, pufferTemp, effectiveSurplus, potentialSurplus, dryerDemandActive);
+    const dryerDemandActive = autoMode && (!shellyOn || running);
+    const heizstabPauseRequestedNow = updateHeizstabPriority(autoMode, dayLockActive, pufferTemp, effectiveSurplus, potentialSurplus, dryerDemandActive);
     const pvForDecision = heizstabPauseRequestedNow ? potentialSurplus : effectiveSurplus;
     const pvEnough = pvForDecision >= PARAM.minPvUeberschussW;
     const now = Date.now();
@@ -316,9 +344,25 @@ function regulate() {
     updatePvTimers(pvEnough);
     checkTankFull(running, shellyOn);
 
-    if (!visEnabled) {
-        setDryer(false, 'VIS-Freigabe aus');
-        setStatus('Aus: VIS-Freigabe aus');
+    if (!dryerEnabled) {
+        if (tankNotificationActive) {
+            tankNotificationActive = false;
+            setState(DP.tankMeldungAktiv, false, true);
+        }
+        setDryer(false, 'Betriebsmodus Aus');
+        setStatus('Aus: Betriebsmodus Aus');
+        return;
+    }
+
+    if (onMode && tankNotificationActive) {
+        setDryer(false, 'Lufttrockner bleibt aus: Tankmeldung aktiv');
+        setStatus('Aus: Tankmeldung aktiv - bitte Tank prüfen/leeren und danach Betriebsmodus Aus und wieder Ein wählen');
+        return;
+    }
+
+    if (onMode) {
+        setDryer(true, 'Betriebsmodus Ein: manuell eingeschaltet');
+        setStatus(`Ein: Betriebsmodus Ein, Leistung ${Math.round(getDryerPower())} W`);
         return;
     }
 
@@ -356,6 +400,6 @@ heizstabPauseRequested = !!getState(DP.heizstabPauseRequest)?.val;
 
 schedule(TIMES.mitternachtResetCron, resetDailyLock);
 schedule(`*/${Math.max(1, Math.round(TIMES.regelIntervallMs / 1000))} * * * * *`, regulate);
-on({ id: [DP.visFreigabe, DP.pvUeberschussW, DP.shellyOnline, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC, DP.heizstabIstLeistungW], change: 'ne' }, regulate);
+on({ id: [DP.visBetriebsmodus, DP.pvUeberschussW, DP.shellyOnline, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC, DP.heizstabIstLeistungW], change: 'ne' }, regulate);
 
 regulate();
