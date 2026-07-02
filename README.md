@@ -90,7 +90,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.3.0`, Speicherladepumpe `1.2.7`, WW-Pumpe `1.1.0` und Lufttrockner `1.1.2` melden. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.3.0`, Speicherladepumpe `1.2.7`, WW-Pumpe `1.1.1` und Lufttrockner `1.2.0` melden. |
 | `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, Lufttrockner-Reserve `1000 W`, WW-Min `30 °C`, WW-Max `75 °C`, MaxTemp-Wiedereinschaltung über Delta-T-Hysterese oder zusätzlich wenn intern mehr als `10 K` kühler als extern ist, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
@@ -469,7 +469,7 @@ Bei aktivem Bypass wird `SollIstFehler` bewusst auf `false` gesetzt.
 
 Dieses Skript steuert die Heizkreispumpe über ein Shelly-Relais, das ein **Stromstoßrelais** per kurzem Impuls toggelt. Es schaltet also nicht dauerhaft einen Ausgang, sondern sendet bei Bedarf einen kurzen Umschaltimpuls.
 
-Das Skript veröffentlicht seine Version `1.2.1` unter `0_userdata.0.Heizung.Heizkreispumpe.scriptVersion`.
+Das Skript veröffentlicht seine Version `1.3.0` unter `0_userdata.0.Heizung.Heizkreispumpe.scriptVersion`.
 
 ### Wichtige Datenpunkte
 
@@ -527,7 +527,7 @@ Bei manuellem `ManualMode = ON` oder `ManualMode = OFF` der Speicherladepumpe wi
 
 Dieses Skript steuert die Warmwasser-Zirkulationspumpe. Es ist unabhängig von der Heizstab-Leistungsregelung und arbeitet zeit- bzw. manuell gesteuert.
 
-Das Skript veröffentlicht seine Version `1.1.0` unter `0_userdata.0.Heizung.WW-Pumpe.ScriptVersion`.
+Das Skript veröffentlicht seine Version `1.1.1` unter `0_userdata.0.Heizung.WW-Pumpe.ScriptVersion`.
 
 ### Wichtige Datenpunkte
 
@@ -540,6 +540,10 @@ Alle Userdata-DPs liegen unter `0_userdata.0.Heizung.WW-Pumpe.`.
 | `RestlaufzeitMin` | Ausgabe | verbleibende Restlaufzeit in Minuten. |
 | `Manuell` | Eingabe | `auto`, `on` oder `off`. |
 | `Status` | Ausgabe | `Bereit`, `EIN: x`, `Manuell AN`, `Manuell AUS` oder `Offline`. |
+| `LetzterSchaltgrund` | Ausgabe | Letzter Schalt-, Start- oder Fehlergrund. |
+| `FehlerAktiv` | Ausgabe | Zeigt aktive Störungen, z. B. Shelly offline. |
+| `FehlerText` | Ausgabe | Klartext zur aktiven Störung. |
+| `LastUpdateTs` | Ausgabe | Zeitstempel der letzten Status-/Fehleraktualisierung als Unix-ms. |
 | `ScriptVersion` | Ausgabe | Skriptversion. |
 
 Externe DPs:
@@ -554,9 +558,11 @@ Externe DPs:
 
 | Parameter | Wert | Wirkung |
 | --- | --- | --- |
-| `DEFAULT_DURATION_MIN` | `30 min` | Standardlaufzeit bei Neuerstellung. |
-| `COUNTDOWN_INTERVAL_MS` | `1000 ms` | Countdown-Auflösung. |
-| `Restlaufzeit = 99` | Sonderanzeige | Wird bei `Manuell = on` gesetzt. |
+| `TIMES.defaultDurationMin` | `30 min` | Standardlaufzeit bei Neuerstellung. |
+| `TIMES.countdownIntervalMs` | `1000 ms` | Countdown-Auflösung. |
+| `PARAM.minDurationMin` / `PARAM.maxDurationMin` | `1` / `180 min` | Begrenzen ungültige Laufzeit-Eingaben. |
+| `PARAM.manualOnRemainingDisplayMin` | `99` | Sonderanzeige bei `Manuell = on`. |
+| `PARAM.restartCmd` | `iobroker restart energiefluss-erweitert.2` | Wird beim Ausschalten nach vorherigem EIN ausgeführt, damit die Adapter-Anzeige nicht hängen bleibt. |
 
 ### Betriebsarten
 
@@ -568,7 +574,7 @@ Externe DPs:
 
 ### Timerlogik
 
-1. Start über `Start = true` oder externen Shelly/BLE-Button.
+1. Start über `Start = true` oder externen Shelly/BLE-Button; der Button wird nur einmal über `change: 'ne'` ausgewertet.
 2. Nur möglich, wenn `Manuell = auto` ist.
 3. Wenn Shelly offline ist, wird nicht gestartet und `Status = Offline` gesetzt.
 4. Laufzeit wird aus `LaufzeitMin` gelesen.
@@ -584,7 +590,7 @@ Externe DPs:
 
 ## 🌬️ Unterskript `Lufttrockner`
 
-Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusätzlichen PV-Verbraucher. Es arbeitet unabhängig von der Heizstabregelung, kann dem Hauptskript aber melden, dass der Heizstab Leistung freihalten soll. Das Hauptskript erwartet Version `1.1.2` unter `0_userdata.0.Heizung.Lufttrockner.ScriptVersion`.
+Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusätzlichen PV-Verbraucher. Es arbeitet unabhängig von der Heizstabregelung, kann dem Hauptskript aber melden, dass der Heizstab Leistung freihalten soll. Das Hauptskript erwartet Version `1.2.0` unter `0_userdata.0.Heizung.Lufttrockner.ScriptVersion`.
 
 ### Datenpunkte und externe Kopplung
 
