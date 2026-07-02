@@ -23,6 +23,7 @@ const DP = {
     letzterSchaltgrund: '0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund',
     pvGenugSeit: '0_userdata.0.Heizung.Lufttrockner.PVGenugSeit',
     pvZuWenigSeit: '0_userdata.0.Heizung.Lufttrockner.PVZuWenigSeit',
+    pvLetzteBewertung: '0_userdata.0.Heizung.Lufttrockner.PVLetzteBewertung',
     abschaltungenHeute: '0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute',
     tagessperreAktiv: '0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv',
     tankMeldungAktiv: '0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv',
@@ -57,7 +58,7 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.2.0',
+    scriptVersion: '1.3.1',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
@@ -114,6 +115,7 @@ function initStates() {
     ensureState(DP.letzterSchaltgrund, '', { name: 'Lufttrockner letzter Schaltgrund', type: 'string', role: 'text', read: true, write: false });
     ensureState(DP.pvGenugSeit, '', { name: 'Lufttrockner PV genug seit', type: 'string', role: 'text', read: true, write: false });
     ensureState(DP.pvZuWenigSeit, '', { name: 'Lufttrockner PV zu wenig seit', type: 'string', role: 'text', read: true, write: false });
+    ensureState(DP.pvLetzteBewertung, '', { name: 'Lufttrockner letzte PV-Bewertung mit Zeitpunkt', type: 'string', role: 'text', read: true, write: false });
     ensureState(DP.abschaltungenHeute, 0, { name: 'Lufttrockner PV-Abschaltungen heute', type: 'number', role: 'value', read: true, write: false });
     ensureState(DP.tagessperreAktiv, false, { name: 'Lufttrockner Tagessperre aktiv', type: 'boolean', role: 'indicator', read: true, write: false });
     ensureState(DP.tankMeldungAktiv, false, { name: 'Lufttrockner Tankmeldung aktiv', type: 'boolean', role: 'indicator', read: true, write: false });
@@ -275,8 +277,29 @@ function registerPvStop() {
     }
 }
 
+function parseStoredTimestamp(id) {
+    const stored = String(getState(id)?.val || '');
+    const timestamp = Date.parse(stored);
+    return isNaN(timestamp) ? null : timestamp;
+}
+
+function loadPvTimersFromStates() {
+    pvEnoughSince = parseStoredTimestamp(DP.pvGenugSeit);
+    pvLowSince = parseStoredTimestamp(DP.pvZuWenigSeit);
+
+    if (pvEnoughSince && pvLowSince) {
+        if (pvEnoughSince >= pvLowSince) {
+            pvLowSince = null;
+        } else {
+            pvEnoughSince = null;
+        }
+    }
+}
+
 function updatePvTimers(pvEnough) {
     const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const bewertung = pvEnough ? 'Genug' : 'ZuWenig';
 
     if (pvEnough) {
         if (!pvEnoughSince) pvEnoughSince = now;
@@ -288,6 +311,7 @@ function updatePvTimers(pvEnough) {
 
     setState(DP.pvGenugSeit, pvEnoughSince ? new Date(pvEnoughSince).toISOString() : '', true);
     setState(DP.pvZuWenigSeit, pvLowSince ? new Date(pvLowSince).toISOString() : '', true);
+    setState(DP.pvLetzteBewertung, `${bewertung} (${nowIso})`, true);
 }
 
 function checkTankFull(running, shellyOn) {
@@ -336,6 +360,7 @@ function regulate() {
         lowPowerSince = null;
         setState(DP.pvGenugSeit, '', true);
         setState(DP.pvZuWenigSeit, '', true);
+        setState(DP.pvLetzteBewertung, '', true);
         setHeizstabPauseRequest(false, 'Heizstab-Pause beendet: Shelly Lufttrockner offline');
         setStatus('Aus: Shelly Lufttrockner offline');
         return;
@@ -393,6 +418,7 @@ function regulate() {
 }
 
 initStates();
+loadPvTimersFromStates();
 dailyStopCount = readNumber(DP.abschaltungenHeute, 0);
 dayLockActive = !!getState(DP.tagessperreAktiv)?.val;
 tankNotificationActive = !!getState(DP.tankMeldungAktiv)?.val;
