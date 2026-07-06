@@ -300,7 +300,7 @@ Wichtige Bedien- und Anzeige-Datenpunkte:
 | `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Letzter Schalt- oder Sperrgrund. |
 | `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag. |
 | `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Aktiv nach 3 automatischen PV-Abschaltungen; Reset um Mitternacht. |
-| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall. |
+| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall; verhindert weitere Startversuche bis zum manuellen Reset über Betriebsmodus Aus. |
 | `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Zeigt, dass eine Heizstab-Reserve angefordert wird. |
 
 Verhalten:

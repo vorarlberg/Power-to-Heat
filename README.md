@@ -90,7 +90,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | Block | Zweck | Aktuelle Werte / Bedeutung |
 | --- | --- | --- |
 | `TIMES` | Zyklus- und Wartezeiten | Hauptregelzyklus `30 s`, LED-Blinken `700 ms`, Kalibrierpause `10 s`, Selbsttestdauer `10 s`, Plausibilitätswartezeit `4 s`, ABW-Autoquittier-/Wiederholfenster je `15 min`. |
-| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.3.0`, Speicherladepumpe `1.2.7`, WW-Pumpe `1.1.1` und Lufttrockner `1.2.0` melden. |
+| `PUMP_SCRIPT_CHECK` | Versionsüberwachung der Unterskripte | Prüft alle `300 s`, ob Heizkreispumpe `1.3.0`, Speicherladepumpe `1.2.7`, WW-Pumpe `1.1.1` und Lufttrockner `1.3.2` melden. |
 | `LIMITS` | Leistungs- und Temperaturgrenzen | Max. Heizleistung `3500 W`, PV-Hysterese `100 W`, Lufttrockner-Reserve `1000 W`, WW-Min `30 °C`, WW-Max `75 °C`, MaxTemp-Wiedereinschaltung über Delta-T-Hysterese oder zusätzlich wenn intern mehr als `10 K` kühler als extern ist, Übertemperatur intern/extern je `97 °C`. |
 | `EVENT` | Event-getriggerte Regelung | Debounce `3000 ms`; Netzänderung muss mindestens `150 W` betragen. |
 | `ABW` | Leistungsabweichungsprüfung | Fehler bei mehr als `20 %` Abweichung, wenn diese `5000 ms` anhält; Abtastung alle `1000 ms`. |
@@ -590,7 +590,7 @@ Externe DPs:
 
 ## 🌬️ Unterskript `Lufttrockner`
 
-Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusätzlichen PV-Verbraucher. Es arbeitet unabhängig von der Heizstabregelung, kann dem Hauptskript aber melden, dass der Heizstab Leistung freihalten soll. Das Hauptskript erwartet Version `1.2.0` unter `0_userdata.0.Heizung.Lufttrockner.ScriptVersion`.
+Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusätzlichen PV-Verbraucher. Es arbeitet unabhängig von der Heizstabregelung, kann dem Hauptskript aber melden, dass der Heizstab Leistung freihalten soll. Das Hauptskript erwartet Version `1.3.2` unter `0_userdata.0.Heizung.Lufttrockner.ScriptVersion`.
 
 ### Datenpunkte und externe Kopplung
 
@@ -602,7 +602,7 @@ Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusä
 | `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Ausgabe | Letzter Grund für Ein-/Ausschalten oder Sperre. |
 | `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Ausgabe | Zählt automatische PV-Abschaltungen am laufenden Tag. |
 | `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Ausgabe | Sperrt nach zu vielen automatischen Abschaltungen bis Mitternacht. |
-| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Ausgabe | Meldung bei Leistungsabfall, z. B. Tank voll oder Gerät aus. |
+| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Ausgabe | Meldung bei Leistungsabfall, z. B. Tank voll oder Gerät aus; sperrt weitere Startversuche bis zum manuellen Reset über Betriebsmodus Aus. |
 | `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Ausgabe | Zeigt, ob aktuell eine Heizstab-Reserve/Pause angefordert wird. |
 | `0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Heizstab` | Ausgabe an Hauptskript | Reservierungs-/Pauseanforderung für den Heizstab. |
 | `0_userdata.0.Heizstab.V2.ExterneAnforderung.Lufttrockner_Pause_Aktiv` | Rückmeldung vom Hauptskript | Zeigt, ob das Hauptskript die Anforderung berücksichtigt. |
