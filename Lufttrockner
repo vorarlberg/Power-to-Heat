@@ -58,7 +58,7 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.3.1',
+    scriptVersion: '1.3.2',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
@@ -379,7 +379,7 @@ function regulate() {
         return;
     }
 
-    if (onMode && tankNotificationActive) {
+    if (tankNotificationActive) {
         setDryer(false, 'Lufttrockner bleibt aus: Tankmeldung aktiv');
         setStatus('Aus: Tankmeldung aktiv - bitte Tank prüfen/leeren und danach Betriebsmodus Aus und wieder Ein wählen');
         return;
