@@ -58,7 +58,7 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.3.2',
+    scriptVersion: '1.3.3',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
@@ -210,8 +210,6 @@ function setDryer(on, reason) {
     if (on) {
         lastSwitchOnAt = Date.now();
         lowPowerSince = null;
-        tankNotificationActive = false;
-        setState(DP.tankMeldungAktiv, false, true);
     }
 }
 
@@ -370,18 +368,14 @@ function regulate() {
     checkTankFull(running, shellyOn);
 
     if (!dryerEnabled) {
-        if (tankNotificationActive) {
-            tankNotificationActive = false;
-            setState(DP.tankMeldungAktiv, false, true);
-        }
         setDryer(false, 'Betriebsmodus Aus');
         setStatus('Aus: Betriebsmodus Aus');
         return;
     }
 
-    if (tankNotificationActive) {
+    if (tankNotificationActive && !onMode) {
         setDryer(false, 'Lufttrockner bleibt aus: Tankmeldung aktiv');
-        setStatus('Aus: Tankmeldung aktiv - bitte Tank prüfen/leeren und danach Betriebsmodus Aus und wieder Ein wählen');
+        setStatus('Aus: Tankmeldung aktiv - bitte Tank prüfen/leeren und danach Betriebsmodus Ein wählen, damit das Skript die Leistungsaufnahme erkennen und die Meldung zurücksetzen kann');
         return;
     }
 
