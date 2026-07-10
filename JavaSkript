@@ -89,6 +89,14 @@ const RAMP = {
     tickMs: 1000      // Ramptakt
 };
 
+// --- Sauberer Skript-Stopp / Update ---
+const SHUTDOWN = {
+    enabled: true,
+    rampDownMs: 8000,        // maximale Zeit, die beim Skript-Stopp sanft auf 0 W geregelt wird
+    rampStepMs: 500,         // Schrittweite der Shutdown-Rampe
+    statusText: 'Skript wird sauber gestoppt/aktualisiert – Heizstab fährt kontrolliert herunter. [SYS999]'
+};
+
 // --- Externe DPs (direkt lesen; keine Spiegel) ---
 const EXTERNAL = {
     ueberschussW: '0_userdata.0.Strom.Netzeinspeisung',                 // + = PV-Überschuss
@@ -522,7 +530,9 @@ function kalibrierteLeistung(sollWatt) {
 
 // Event-Trigger
 let _eventTimer = null;
+let _shutdownActive = false;
 function requestRegelzyklusByEvent(reason) {
+    if (_shutdownActive) return;
     const now = Date.now();
     if (now - _lastEventRegelTs < EVENT.debounceMs) return;
 
@@ -604,7 +614,8 @@ function setPWM_TargetWatt(watt) {
 
 // Ramper – fährt PWM_Watt mit max 100 W/s zum Target
 let _lastRampTs = Date.now();
-setInterval(() => {
+const _rampInterval = setInterval(() => {
+    if (_shutdownActive) return;
     const now = Date.now();
     const dt = Math.max(0.001, (now - _lastRampTs) / 1000);
     _lastRampTs = now;
@@ -1594,11 +1605,11 @@ on({ id: EXTERNAL.zaehlerLinksLWT,  change: 'ne' }, () => regelzyklus());
 on({ id: EXTERNAL.wrDachOnline,     change: 'ne' }, () => regelzyklus());
 on({ id: EXTERNAL.wrFassadeOnline,  change: 'ne' }, () => regelzyklus());
 
-setInterval(regelzyklus, TIMES.regelIntervallSek * 1000);
-setInterval(checkPumpScriptVersions, PUMP_SCRIPT_CHECK.intervalMs);
+const _regelInterval = setInterval(regelzyklus, TIMES.regelIntervallSek * 1000);
+const _pumpScriptCheckInterval = setInterval(checkPumpScriptVersions, PUMP_SCRIPT_CHECK.intervalMs);
 
 // Countdown aktualisieren (jede Sekunde)
-setInterval(() => {
+const _countdownInterval = setInterval(() => {
     const now = Date.now();
     const sec = Math.max(0, Math.ceil((_nextRunTs - now) / 1000));
     setState(DP.nextRunInSek, sec, true);
@@ -1617,6 +1628,68 @@ on({ id: 'shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch', change: 'ne' },
         updateLogAckStatus('BP001', 'INAKTIV');
     }
 });
+
+
+
+/* ==========================================================
+   8b) Sauberer Skript-Stopp / Update
+   ========================================================== */
+
+function _clearTimerSafe(timer, clearFn) {
+    if (timer) clearFn(timer);
+}
+
+function gracefulShutdown(done) {
+    _shutdownActive = true;
+
+    _clearTimerSafe(_regelInterval, clearInterval);
+    _clearTimerSafe(_pumpScriptCheckInterval, clearInterval);
+    _clearTimerSafe(_countdownInterval, clearInterval);
+    _clearTimerSafe(_rampInterval, clearInterval);
+    _clearTimerSafe(_eventTimer, clearTimeout);
+    _clearTimerSafe(_ampelBlinkTimer, clearInterval);
+    _clearTimerSafe(_ackBlinkTimer, clearInterval);
+    _clearTimerSafe(_kalBlinkTimer, clearInterval);
+    _clearAbwAutoQuittTimer();
+
+    appendLog(SHUTDOWN.statusText);
+    _flushPendingLog();
+    setState(DP.status, SHUTDOWN.statusText, true);
+    setState(DP.aktiv, false, true);
+    setState(DP.pwmTargetW, 0, true);
+    setState(DP.sollWattRaw, 0, true);
+    stopAckBlink();
+    _ampelReset();
+
+    if (!SHUTDOWN.enabled) {
+        setPWM_Immediate(0);
+        if (done) done();
+        return;
+    }
+
+    const startW = Number(getState(DP.pwmWatt)?.val) || 0;
+    const startTs = Date.now();
+
+    const tick = () => {
+        const elapsed = Date.now() - startTs;
+        const progress = Math.min(1, elapsed / Math.max(1, SHUTDOWN.rampDownMs));
+        const nextW = Math.round(startW * (1 - progress));
+        setState(DP.pwmWatt, nextW, true);
+
+        if (progress >= 1 || nextW <= 0) {
+            setPWM_Immediate(0);
+            setState(DP.nextRunInSek, 0, true);
+            if (done) done();
+            return;
+        }
+
+        setTimeout(tick, SHUTDOWN.rampStepMs);
+    };
+
+    tick();
+}
+
+onStop(gracefulShutdown, SHUTDOWN.rampDownMs + 2000);
 
 /* ==========================================================
    9) INITIALISIERUNG

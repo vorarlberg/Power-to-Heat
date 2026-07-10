@@ -54,6 +54,7 @@ const DEBOUNCE_IST_MS     = 500;  // Entprellung Ist-Rückmeldung
 const SOLL_IST_AFTER_SWITCH_DELAY_MS = 500; // Wartezeit nach Sollwertwechsel, bis das Schütz angezogen/abgefallen sein muss
 const DEBOUNCE_TEMP_MS   = 10000;
 const GPIO_TEST_DELAY_MS = 500;
+const STARTUP_GPIO_TEST_ENABLED = false; // bei Skript-Updates keine Relais/GPIO-Testimpulse auslösen
 const IST_INVERT          = false; // auf true setzen, falls der Kontakt logisch invertiert ist (z.B. NC)
 const HEIZSTAB_RUNNING_MIN_W = 100; // ab dieser Ist-Leistung gilt der Heizstab als laufend
 
@@ -82,6 +83,8 @@ let sollIstSwitchTimer = null;
 
 let shellyOfflineTimer = null;
 let shellyOfflineFaultActive = false;
+let gpioTestTimer1 = null;
+let gpioTestTimer2 = null;
 let overTempActive = false;
 let waitForPufferDeltaAfterEqualized = false;
 
@@ -400,15 +403,21 @@ on({ id: DP_PUMP_BYPASS, change: 'ne' }, () => {
 function toggleGPIO(dp, cb) {
     const orig = !!getState(dp)?.val;
     setState(dp, !orig, true);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
         setState(dp, orig, true);
         cb && cb();
     }, GPIO_TEST_DELAY_MS);
+    return timer;
 }
 
 function startupGpioTest() {
-    toggleGPIO(DP_GPIO17, () => {
-        toggleGPIO(DP_GPIO18, () => {
+    if (!STARTUP_GPIO_TEST_ENABLED) {
+        evaluate();
+        return;
+    }
+
+    gpioTestTimer1 = toggleGPIO(DP_GPIO17, () => {
+        gpioTestTimer2 = toggleGPIO(DP_GPIO18, () => {
             evaluate();
         });
     });
@@ -501,7 +510,7 @@ function startupGpioTest() {
     });
 
     // Initialwerte setzen
-    setState(DP_PUMP_STATE, false, true);
+    // Realen Pumpenstatus beim Skript-Update nicht künstlich auf AUS setzen.
     setState(DP_PUMP_MANUAL_MODE, 'AUTO', true);
     setState(DP_PUMP_ERROR, false, true);
     setState(DP_PUMP_IST, readPumpIst(), true);
@@ -532,3 +541,14 @@ function startupGpioTest() {
 
     startupGpioTest();
 })();
+
+
+// =======================
+// Sauberer Skript-Stopp / Update
+// =======================
+onStop(() => {
+    [shellyTimer, tempTimer, istTimer, sollIstSwitchTimer, shellyOfflineTimer, gpioTestTimer1, gpioTestTimer2].forEach(timer => {
+        if (timer) clearTimeout(timer);
+    });
+    setState(DP_PUMP_LAST_REASON, 'Skript wird sauber gestoppt/aktualisiert – Ausgänge bleiben unverändert', true);
+}, 500);

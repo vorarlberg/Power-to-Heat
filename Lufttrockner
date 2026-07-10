@@ -433,3 +433,11 @@ schedule(`*/${Math.max(1, Math.round(TIMES.regelIntervallMs / 1000))} * * * * *`
 on({ id: [DP.visBetriebsmodus, DP.pvUeberschussW, DP.shellyOnline, DP.shellyPowerW, DP.shellySwitch, DP.pufferTempC, DP.heizstabIstLeistungW], change: 'ne' }, regulate);
 
 regulate();
+
+// =======================
+// Sauberer Skript-Stopp / Update
+// =======================
+onStop(() => {
+    setHeizstabPauseRequest(false, 'Skript wird sauber gestoppt/aktualisiert');
+    setStatus('Skript wird sauber gestoppt/aktualisiert – Lufttrockner-Schaltzustand bleibt unverändert');
+}, 500);
