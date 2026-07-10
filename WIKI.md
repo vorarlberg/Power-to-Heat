@@ -298,16 +298,16 @@ Wichtige Bedien- und Anzeige-Datenpunkte:
 | `0_userdata.0.Heizung.Lufttrockner.IstLaeuft` | Zeigt anhand der gemessenen Leistung, ob das Gerät wirklich läuft. |
 | `0_userdata.0.Heizung.Lufttrockner.Status` | Klartextstatus. |
 | `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Letzter Schalt- oder Sperrgrund. |
-| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag. |
+| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag; PV-Abschalt-/Tagessperren-Meldungen gehen über `pushover.1` als Solar-Meldungen. |
 | `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Aktiv nach 3 automatischen PV-Abschaltungen; Reset um Mitternacht. |
-| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall; Pushover wird pro Ereignis nur einmal gesendet und erst nach wieder erkannter Leistungsaufnahme zurückgesetzt. |
+| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall; Pushover geht über `pushover.0` als Systemmeldung, wird pro Ereignis nur einmal gesendet und erst nach wieder erkannter Leistungsaufnahme zurückgesetzt. |
 | `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Zeigt, dass eine Heizstab-Reserve angefordert wird. |
 
 Verhalten:
 
 - Einschalten erst bei ausreichend PV-Überschuss über 15 Minuten.
 - Ausschalten erst bei zu wenig PV über 15 Minuten.
-- Nach der 3. automatischen PV-Abschaltung wird bis Mitternacht gesperrt.
+- Nach der 3. automatischen PV-Abschaltung wird bis Mitternacht gesperrt; diese PV-/Tagessperren-Hinweise laufen als Solar-Meldungen über `pushover.1`.
 - Bei Tank-/Gerätemeldung bleibt die Meldesperre auch dann aktiv, wenn der Shelly im Auto-Modus später wegen PV-Mangel ausgeschaltet wird; zurückgesetzt wird sie erst bei wieder erkannter Leistungsaufnahme.
 - Ab ca. 60 °C Puffertemperatur darf der Lufttrockner beim Hauptskript eine Leistungsreserve anfordern.
 - Der Heizstab kann dann reduziert weiterlaufen, solange genug PV-Strom für beide Verbraucher verfügbar ist.

@@ -58,7 +58,7 @@ const TIMES = {
 // Parameter
 // =======================
 const PARAM = {
-    scriptVersion: '1.3.3',
+    scriptVersion: '1.3.4',
     minPvUeberschussW: 1000,
     geraeteLeistungW: 800,
     runningPowerMinW: 100,
@@ -66,8 +66,14 @@ const PARAM = {
     heizstabReserveFreigabeHystereseW: 200,
     maxPvAbschaltungenProTag: 3,
     pushoverEnabled: true,
-    pushoverAdapter: 'pushover',
-    pushoverTitle: 'Lufttrockner',
+    pushoverAdapters: {
+        system: 'pushover.0',
+        solar: 'pushover.1'
+    },
+    pushoverTitle: {
+        system: 'Lufttrockner System',
+        solar: 'Lufttrockner Solar'
+    },
     pushoverSound: ''
 };
 
@@ -182,16 +188,18 @@ function setReason(reason) {
     log(`[Lufttrockner] ${reason}`, 'info');
 }
 
-function sendPushover(message) {
+function sendPushover(message, channel = 'system') {
     if (!PARAM.pushoverEnabled) return;
 
+    const adapter = PARAM.pushoverAdapters[channel] || PARAM.pushoverAdapters.system;
+    const title = PARAM.pushoverTitle[channel] || PARAM.pushoverTitle.system;
     const payload = {
-        title: PARAM.pushoverTitle,
+        title,
         message
     };
 
     if (PARAM.pushoverSound) payload.sound = PARAM.pushoverSound;
-    sendTo(PARAM.pushoverAdapter, payload);
+    sendTo(adapter, payload);
 }
 
 function setDryer(on, reason) {
@@ -270,8 +278,10 @@ function registerPvStop() {
         dayLockActive = true;
         setState(DP.tagessperreAktiv, true, true);
         setDryer(false, `PV-Abschaltung ${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag}: Tagessperre bis Mitternacht aktiv`);
+        sendPushover(`Lufttrockner: PV-Abschaltung ${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag}. Tagessperre bis Mitternacht aktiv.`, 'solar');
     } else {
         setDryer(false, `PV-Überschuss länger als ${TIMES.pvAusVerzoegerungMs / 60000} min zu gering (${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag})`);
+        sendPushover(`Lufttrockner: PV-Überschuss länger als ${TIMES.pvAusVerzoegerungMs / 60000} min zu gering (${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag}).`, 'solar');
     }
 }
 
@@ -322,7 +332,7 @@ function checkTankFull(running, shellyOn) {
             tankNotificationActive = true;
             setState(DP.tankMeldungAktiv, true, true);
             setDryer(false, 'Lufttrockner ohne Leistungsaufnahme - vermutlich Tank voll oder Gerät automatisch aus');
-            sendPushover('Lufttrockner hat keine Leistungsaufnahme mehr. Bitte Tank prüfen/leeren.');
+            sendPushover('Lufttrockner hat keine Leistungsaufnahme mehr. Bitte Tank prüfen/leeren.', 'system');
         }
     } else {
         lowPowerSince = null;
