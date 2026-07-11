@@ -71,8 +71,8 @@ const PARAM = {
         solar: 'pushover.1'
     },
     pushoverTitle: {
-        system: 'Lufttrockner System',
-        solar: 'Lufttrockner Solar'
+        system: 'Lufttrockner',
+        solar: 'Lufttrockner'
     },
     pushoverSound: ''
 };
@@ -278,10 +278,8 @@ function registerPvStop() {
         dayLockActive = true;
         setState(DP.tagessperreAktiv, true, true);
         setDryer(false, `PV-Abschaltung ${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag}: Tagessperre bis Mitternacht aktiv`);
-        sendPushover(`Lufttrockner: PV-Abschaltung ${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag}. Tagessperre bis Mitternacht aktiv.`, 'solar');
     } else {
         setDryer(false, `PV-Überschuss länger als ${TIMES.pvAusVerzoegerungMs / 60000} min zu gering (${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag})`);
-        sendPushover(`Lufttrockner: PV-Überschuss länger als ${TIMES.pvAusVerzoegerungMs / 60000} min zu gering (${dailyStopCount}/${PARAM.maxPvAbschaltungenProTag}).`, 'solar');
     }
 }
 

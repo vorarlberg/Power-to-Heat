@@ -75,7 +75,17 @@ const FI = {
 // --- Sollwerte / Regelparameter (per DP änderbar) ---
 const PARAM = {
     deltaTRegelbereich_Default: 5,
-    wwZieltemp_Default: 60
+    wwZieltemp_Default: 60,
+    pushoverEnabled: true,
+    pushoverAdapters: {
+        system: 'pushover.0',
+        solar: 'pushover.1'
+    },
+    pushoverTitle: {
+        system: 'Heizstab',
+        solar: 'Heizstab'
+    },
+    pushoverSound: ''
 };
 
 // --- WW-Sicherstellung: feste Heizleistung ---
@@ -412,6 +422,20 @@ function updateLogAckStatus(code, status) {
             return;
         }
     }
+}
+
+function sendPushover(message, channel = 'system') {
+    if (!PARAM.pushoverEnabled) return;
+
+    const adapter = PARAM.pushoverAdapters[channel] || PARAM.pushoverAdapters.system;
+    const title = PARAM.pushoverTitle[channel] || PARAM.pushoverTitle.system;
+    const payload = {
+        title,
+        message
+    };
+
+    if (PARAM.pushoverSound) payload.sound = PARAM.pushoverSound;
+    sendTo(adapter, payload);
 }
 
 function appendLog(message) {
@@ -800,6 +824,7 @@ function flashAckBlink(times = 3, periodMs = 200) {
 const _activeFaults = new Map();
 let _abwAutoQuittTimer = null;
 let _abwAutoQuittAttemptTs = 0; // Zeitpunkt des ersten Auto-Quittier-Versuchs
+let _abwAutoQuittFailedNotificationSent = false; // verhindert Pushover-Spam nach fehlgeschlagenem Auto-Reset
 
 function _clearAbwAutoQuittTimer() {
     if (_abwAutoQuittTimer) clearTimeout(_abwAutoQuittTimer);
@@ -847,8 +872,12 @@ function setFaultActive(code, status) {
             (now - _abwAutoQuittAttemptTs) <= TIMES.abwRecurrenceWindowMs;
 
         if (recurrenceActive) {
-            appendLog('ABW001 erneut innerhalb 15 min nach Auto-Quittierung aufgetreten – manuelle Quittierung erforderlich (erster Auto-Versuch wurde bereits durchgeführt).');
-            setState(DP.status, 'Abweichung erneut innerhalb 15 min nach Auto-Quittierung. Manuelle Quittierung erforderlich. [ABW001]', true);
+            if (!_abwAutoQuittFailedNotificationSent) {
+                appendLog('ABW001 erneut innerhalb 15 min nach Auto-Quittierung aufgetreten – manuelle Quittierung erforderlich (erster Auto-Versuch wurde bereits durchgeführt).');
+                setState(DP.status, 'Abweichung erneut innerhalb 15 min nach Auto-Quittierung. Manuelle Quittierung erforderlich. [ABW001]', true);
+                sendPushover('Heizstab wurde wegen Leistungsabweichung abgeschaltet. Der automatische Reset hat nicht dauerhaft funktioniert. Bitte Anlage prüfen und Fehler manuell quittieren. [ABW001]', 'system');
+                _abwAutoQuittFailedNotificationSent = true;
+            }
             _clearAbwAutoQuittTimer();
         } else {
             _scheduleAbwAutoQuitt();
@@ -863,6 +892,7 @@ function clearFault(code) {
     }
     if (code === 'ABW001') {
         _clearAbwAutoQuittTimer();
+        _abwAutoQuittFailedNotificationSent = false;
     }
     // Log-Eintrag (falls vorhanden) als quittiert markieren
     updateLogAckStatus(code, ACK_STATUS.QUITTIERT);

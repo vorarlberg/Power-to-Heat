@@ -298,7 +298,7 @@ Wichtige Bedien- und Anzeige-Datenpunkte:
 | `0_userdata.0.Heizung.Lufttrockner.IstLaeuft` | Zeigt anhand der gemessenen Leistung, ob das Gerät wirklich läuft. |
 | `0_userdata.0.Heizung.Lufttrockner.Status` | Klartextstatus. |
 | `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Letzter Schalt- oder Sperrgrund. |
-| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag; PV-Abschalt-/Tagessperren-Meldungen gehen über `pushover.1` als Solar-Meldungen. |
+| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag; PV-Abschalt-/Tagessperren erzeugen keine Pushover-Meldungen mehr. |
 | `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Aktiv nach 3 automatischen PV-Abschaltungen; Reset um Mitternacht. |
 | `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall; Pushover geht über `pushover.0` als Systemmeldung, wird pro Ereignis nur einmal gesendet und erst nach wieder erkannter Leistungsaufnahme zurückgesetzt. |
 | `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Zeigt, dass eine Heizstab-Reserve angefordert wird. |
@@ -307,7 +307,7 @@ Verhalten:
 
 - Einschalten erst bei ausreichend PV-Überschuss über 15 Minuten.
 - Ausschalten erst bei zu wenig PV über 15 Minuten.
-- Nach der 3. automatischen PV-Abschaltung wird bis Mitternacht gesperrt; diese PV-/Tagessperren-Hinweise laufen als Solar-Meldungen über `pushover.1`.
+- Nach der 3. automatischen PV-Abschaltung wird bis Mitternacht gesperrt; diese PV-/Tagessperren-Hinweise werden nur noch im Status/Schaltgrund geführt und nicht mehr per Pushover verschickt.
 - Bei Tank-/Gerätemeldung bleibt die Meldesperre auch dann aktiv, wenn der Shelly im Auto-Modus später wegen PV-Mangel ausgeschaltet wird; zurückgesetzt wird sie erst bei wieder erkannter Leistungsaufnahme.
 - Ab ca. 60 °C Puffertemperatur darf der Lufttrockner beim Hauptskript eine Leistungsreserve anfordern.
 - Der Heizstab kann dann reduziert weiterlaufen, solange genug PV-Strom für beide Verbraucher verfügbar ist.
@@ -342,7 +342,7 @@ Zusätzlich gibt es **`Regelung.QuittierTaster_Blink`**. Dieser Datenpunkt blink
 | `TP003` | Warmwasser-Sicherstellung aktiv/wartend | Heizstab heizt mit Sicherstellungsleistung oder wartet auf Einschaltpunkt. | Normal, wenn WW-Sicherstellung gewünscht ist. |
 | `TP004` | Harte Übertemperatur | Sofort aus, rote LED, Fehler zunächst nicht quittierbar. | Ursache prüfen; erst nach Abkühlung quittieren. |
 | `FI001` | FI/LS aus | Sofort aus, rote LED, Sperre. | FI/LS und Ursache prüfen; danach quittieren. |
-| `ABW001` | Istleistung weicht zu stark vom Soll ab | Heizstab gesperrt. | Heizstab/PWM/Leistung prüfen; quittieren, wenn Ursache behoben ist. |
+| `ABW001` | Istleistung weicht zu stark vom Soll ab | Heizstab gesperrt. | Heizstab/PWM/Leistung prüfen; wenn der einmalige Auto-Reset nicht dauerhaft funktioniert, kommt genau eine System-Pushover-Meldung über `pushover.0`; danach manuell quittieren. |
 | `PWM400` / `PWMERR` | PWM-Gerät offline oder Fehler | PWM auf 0, rote LED. | PWM-Gerät/Verbindung prüfen. |
 | `OFF010` | Gerät offline, Wartezeit läuft | Noch keine harte Abschaltung bis Wartezeit abgelaufen ist. | Verbindung prüfen. |
 | `OFF001` | Gerät offline nach Wartezeit | Heizstab aus. | Gerät wieder online bringen. |
