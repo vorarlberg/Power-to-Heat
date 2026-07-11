@@ -38,7 +38,10 @@ const LIMITS = {
     wwTempMaxDefault: 75,
     maxTempInternExternDiffReleaseK: 10, // Zusatz-Freigabe nach MaxTemp: intern muss mehr als 10 K kühler als extern sein
     uebertempInternDefault: 97,
-    uebertempExternDefault: 97
+    uebertempExternDefault: 97,
+    controllerTempWarnDefault: 70,
+    controllerTempKritischDefault: 85,
+    controllerTempReleaseDefault: 75
 };
 
 // --- Event-getriggerte Regelung (Debounce) ---
@@ -70,6 +73,19 @@ const OFFLINE = {
 const FI = {
     persistMs: 2000,   // FI muss mind. 2s AUS sein, bevor abgeschaltet/gelatcht wird
     sampleMs: 250
+};
+
+// --- Geräte-Diagnose & Schutz (Modbus Heizstab) ---
+const DEVICE_DIAG = {
+    intervalMs: 30000,
+    controllerTempWarnC: LIMITS.controllerTempWarnDefault,
+    controllerTempCriticalC: LIMITS.controllerTempKritischDefault,
+    controllerTempReleaseC: LIMITS.controllerTempReleaseDefault,
+    voltageWarnMinV: 200,
+    voltageWarnMaxV: 250,
+    frequencyWarnMinHz: 49,
+    frequencyWarnMaxHz: 51,
+    warningRepeatMs: 1800000
 };
 
 // --- Sollwerte / Regelparameter (per DP änderbar) ---
@@ -117,6 +133,16 @@ const EXTERNAL = {
     wrFassadeOnline:  'modbus.0.info.connection',                       // true/false
     tempExternC:  'modbus.2.holdingRegisters.1.1030_Temp_2',
     tempInternC:  'modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern',
+    controllerTempC: 'modbus.2.holdingRegisters.1.1015_(R)_tempchip',
+    voltageL1V: 'modbus.2.holdingRegisters.1.1061_(R)_U_L1',
+    frequencyHz: 'modbus.2.holdingRegisters.1.1064_(R)_Frequenz',
+    relayStatus: 'modbus.2.holdingRegisters.1.1058_(R)_Relay_status',
+    auxPowerW: 'modbus.2.holdingRegisters.1.1075_(R)_P_out2',
+    fwControllerMain: 'modbus.2.holdingRegisters.1.1016_(R)_Controller_firmware_main_version',
+    fwPowerstage: 'modbus.2.holdingRegisters.1.1017_(R)_Powerstage_firmware_version',
+    fwControllerSub: 'modbus.2.holdingRegisters.1.1028_(R)_Controller_firmware_sub_version',
+    fwUpdateState: 'modbus.2.holdingRegisters.1.1029_(R)_Controller_firmware_update_state',
+    fwCoController: 'modbus.2.holdingRegisters.1.1086_(R)_Co-Controller_firmware_version',
     deviceOnline: 'modbus.2.info.connection',
     istLeistungW: 'modbus.2.holdingRegisters.1.1000_Power',             // echte Heizstab-Leistung
     speicherTempC:'modbus.2.holdingRegisters.1.1030_Temp_2',             // Pufferspeicher-Temperatur (WW-Istwert)
@@ -205,6 +231,9 @@ const DP = {
     tempMax:            BASE + 'Parameter.MaxTemp',
     uebertempIntern:    BASE + 'Parameter.Übertemperatur_intern',
     uebertempExtern:    BASE + 'Parameter.Übertemperatur_extern',
+    controllerTempWarn: BASE + 'Parameter.ControllerTemp_Warnung',
+    controllerTempKrit: BASE + 'Parameter.ControllerTemp_Kritisch',
+    controllerTempRelease: BASE + 'Parameter.ControllerTemp_Freigabe',
     wwSicherAn:         BASE + 'Parameter.WW_Sicherstellung_AN',
 
     // Ampel (interne Anzeige; reale Ausgabe über LED_GPIO)
@@ -227,7 +256,21 @@ const DP = {
 
     // Externe Verbraucher-Anforderungen
     lufttrocknerPauseRequest: BASE + 'ExterneAnforderung.Lufttrockner_Pause_Heizstab',
-    lufttrocknerPauseAktiv:   BASE + 'ExterneAnforderung.Lufttrockner_Pause_Aktiv'
+    lufttrocknerPauseAktiv:   BASE + 'ExterneAnforderung.Lufttrockner_Pause_Aktiv',
+
+    // Geräte-Diagnose (reine Ausgabe)
+    diagControllerTemp: BASE + 'Diagnose.Controller_Temperatur_C',
+    diagControllerTempStatus: BASE + 'Diagnose.Controller_Temperatur_Status',
+    diagControllerOvertempActive: BASE + 'Diagnose.Controller_Übertemperatur_Aktiv',
+    diagVoltageL1: BASE + 'Diagnose.Spannung_L1_V',
+    diagFrequency: BASE + 'Diagnose.Frequenz_Hz',
+    diagPowerQualityStatus: BASE + 'Diagnose.Netzqualität_Status',
+    diagRelayStatusRaw: BASE + 'Diagnose.Relaisstatus_Rohwert',
+    diagRelayAuxActive: BASE + 'Diagnose.Relais_AUX_Aktiv',
+    diagRelaySelvActive: BASE + 'Diagnose.Relais_SELV_Aktiv',
+    diagAuxPower: BASE + 'Diagnose.AUX_Leistung_W',
+    diagFirmwareInfo: BASE + 'Diagnose.Firmware_Info',
+    diagFirmwareUpdateState: BASE + 'Diagnose.Firmware_Update_State'
 };
 
 // --- States anlegen ---
@@ -288,6 +331,9 @@ ensureStateNumRW(DP.tempMin, LIMITS.wwTempMinDefault, 'Min. WW-Temperatur', '°C
 ensureStateNumRW(DP.tempMax, LIMITS.wwTempMaxDefault, 'Max. WW-Temperatur', '°C', 10, 90);
 ensureStateNumRW(DP.uebertempIntern, LIMITS.uebertempInternDefault, 'Übertemp.-Grenze intern', '°C', 20, 100);
 ensureStateNumRW(DP.uebertempExtern, LIMITS.uebertempExternDefault, 'Übertemp.-Grenze extern', '°C', 20, 100);
+ensureStateNumRW(DP.controllerTempWarn, DEVICE_DIAG.controllerTempWarnC, 'Controller-Temperatur Warnung', '°C', 20, 120);
+ensureStateNumRW(DP.controllerTempKrit, DEVICE_DIAG.controllerTempCriticalC, 'Controller-Temperatur kritisch', '°C', 20, 120);
+ensureStateNumRW(DP.controllerTempRelease, DEVICE_DIAG.controllerTempReleaseC, 'Controller-Temperatur Freigabe nach Störung', '°C', 20, 120);
 ensureStateBoolRW(DP.wwSicherAn, false, 'WW-Sicherstellung aktivieren');
 
 // interne Ampel-States (Anzeige)
@@ -304,6 +350,19 @@ ensureStateBoolRW(DP.selfFlag, false, 'Selbsttest aktiv');
 // Lufttrockner darf diesen Eingang setzen; Aktiv ist reine Ausgabe und daher schreibgeschützt.
 ensureStateBoolRW(DP.lufttrocknerPauseRequest, false, 'Lufttrockner fordert Heizstab-Pause an');
 ensureStateBoolRO(DP.lufttrocknerPauseAktiv, 'Heizstab wegen Lufttrockner pausiert (RO)');
+
+ensureStateNumRO(DP.diagControllerTemp, 'Controller-Temperatur (RO)', '°C', -40, 150);
+ensureStateRO(DP.diagControllerTempStatus, { name: 'Controller-Temperatur Status (RO)', type: 'string', role: 'text' });
+ensureStateBoolRO(DP.diagControllerOvertempActive, 'Controller-Übertemperatur aktiv (RO)');
+ensureStateNumRO(DP.diagVoltageL1, 'Spannung L1 (RO)', 'V', 0, 300);
+ensureStateNumRO(DP.diagFrequency, 'Netzfrequenz (RO)', 'Hz', 0, 100);
+ensureStateRO(DP.diagPowerQualityStatus, { name: 'Netzqualität Status (RO)', type: 'string', role: 'text' });
+ensureStateNumRO(DP.diagRelayStatusRaw, 'Relaisstatus Rohwert (RO)', '', 0, 65535);
+ensureStateBoolRO(DP.diagRelayAuxActive, 'AUX-Relais aktiv (RO)');
+ensureStateBoolRO(DP.diagRelaySelvActive, 'SELV-Relais aktiv (RO)');
+ensureStateNumRO(DP.diagAuxPower, 'AUX-Leistung (RO)', 'W', 0, 100000);
+ensureStateRO(DP.diagFirmwareInfo, { name: 'Firmware-Information (RO)', type: 'string', role: 'text' });
+ensureStateNumRO(DP.diagFirmwareUpdateState, 'Firmware Update State (RO)', '', 0, 65535);
 
 // PWM-DP (falls nicht vorhanden, wird er angelegt – 0..99)
 ensureStateNumRW(PWM_DP, 0, 'PWM GPIO12 dutyPercent', '%', 0, 99);
@@ -332,7 +391,7 @@ function isOfflineCheckDisabledNow() {
 }
 
 // Quittierungspflichtige Fehlercodes und Status
-const ACK_CODES = new Set(['TP004', 'ABW001', 'PWM400', 'PWMERR', 'FI001']);
+const ACK_CODES = new Set(['TP004', 'ABW001', 'PWM400', 'PWMERR', 'FI001', 'CPU002']);
 const ACK_STATUS = {
     NICHT_QUITTIERBAR: 'NICHT_QUITTIERBAR',
     QUITTIERBAR: 'QUITTIERBAR',
@@ -340,7 +399,7 @@ const ACK_STATUS = {
 };
 
 function _extractAckCode(msg) {
-    const m = String(msg ?? '').match(/\[(TP004|ABW001|PWM400|PWMERR|FI001|BP001)\]/);
+    const m = String(msg ?? '').match(/\[(TP004|ABW001|PWM400|PWMERR|FI001|CPU002|BP001)\]/);
     return m ? m[1] : null;
 }
 
@@ -364,6 +423,11 @@ function _currentAckStatusFor(code) {
     const fi = (getState(EXTERNAL.fiHeizstabOK)?.val === true);
     return fi ? ACK_STATUS.QUITTIERBAR : ACK_STATUS.NICHT_QUITTIERBAR;
 }
+    if (code === 'CPU002') {
+        const temp = Number(getState(EXTERNAL.controllerTempC)?.val) || 0;
+        const release = Number(getState(DP.controllerTempRelease)?.val) || DEVICE_DIAG.controllerTempReleaseC;
+        return temp <= release ? ACK_STATUS.QUITTIERBAR : ACK_STATUS.NICHT_QUITTIERBAR;
+    }
     if (code === 'PWM400' || code === 'PWMERR') {
         return _pwmFaultActive ? ACK_STATUS.NICHT_QUITTIERBAR : ACK_STATUS.QUITTIERT;
     }
@@ -577,6 +641,110 @@ function requestRegelzyklusByEvent(reason) {
 }
 
 
+
+/* ==========================================================
+   3a) GERÄTE-DIAGNOSE & SCHUTZ
+   ========================================================== */
+
+let _controllerTempFaultLatched = false;
+let _lastDiagWarning = {};
+
+function _warnOnce(key, message, channel = 'system') {
+    const now = Date.now();
+    if (!_lastDiagWarning[key] || (now - _lastDiagWarning[key]) >= DEVICE_DIAG.warningRepeatMs) {
+        _lastDiagWarning[key] = now;
+        appendLog(message);
+        sendPushover(message, channel);
+    }
+}
+
+function updateDeviceDiagnostics() {
+    const controllerTemp = Number(getState(EXTERNAL.controllerTempC)?.val) || 0;
+    const controllerWarn = Number(getState(DP.controllerTempWarn)?.val) || DEVICE_DIAG.controllerTempWarnC;
+    const controllerCritical = Number(getState(DP.controllerTempKrit)?.val) || DEVICE_DIAG.controllerTempCriticalC;
+    const controllerRelease = Number(getState(DP.controllerTempRelease)?.val) || DEVICE_DIAG.controllerTempReleaseC;
+
+    const voltage = Number(getState(EXTERNAL.voltageL1V)?.val) || 0;
+    const frequency = Number(getState(EXTERNAL.frequencyHz)?.val) || 0;
+    const relayRaw = Number(getState(EXTERNAL.relayStatus)?.val) || 0;
+    const auxPower = Number(getState(EXTERNAL.auxPowerW)?.val) || 0;
+    const fwMain = getState(EXTERNAL.fwControllerMain)?.val;
+    const fwSub = getState(EXTERNAL.fwControllerSub)?.val;
+    const fwPowerstage = getState(EXTERNAL.fwPowerstage)?.val;
+    const fwCo = getState(EXTERNAL.fwCoController)?.val;
+    const fwUpdate = Number(getState(EXTERNAL.fwUpdateState)?.val) || 0;
+
+    const auxActive = (relayRaw & 1) === 1;
+    const selvActive = (relayRaw & 2) === 2;
+
+    setState(DP.diagControllerTemp, controllerTemp, true);
+    setState(DP.diagVoltageL1, voltage, true);
+    setState(DP.diagFrequency, frequency, true);
+    setState(DP.diagRelayStatusRaw, relayRaw, true);
+    setState(DP.diagRelayAuxActive, auxActive, true);
+    setState(DP.diagRelaySelvActive, selvActive, true);
+    setState(DP.diagAuxPower, auxPower, true);
+    setState(DP.diagFirmwareInfo, `Controller ${fwMain}.${fwSub} | Powerstage ${fwPowerstage} | Co-Controller ${fwCo}`, true);
+    setState(DP.diagFirmwareUpdateState, fwUpdate, true);
+
+    let controllerStatus = 'OK';
+    if (controllerTemp >= controllerCritical || _controllerTempFaultLatched) {
+        controllerStatus = controllerTemp <= controllerRelease ? 'QUITTIERBAR' : 'KRITISCH';
+    } else if (controllerTemp >= controllerWarn) {
+        controllerStatus = 'WARNUNG';
+        _warnOnce('controllerTempWarn', `Controller-Temperatur erhöht: ${controllerTemp.toFixed(1)}°C ≥ ${controllerWarn.toFixed(1)}°C. [CPU001]`, 'system');
+    }
+    setState(DP.diagControllerTempStatus, controllerStatus, true);
+    setState(DP.diagControllerOvertempActive, controllerTemp >= controllerCritical || (_controllerTempFaultLatched && controllerTemp > controllerRelease), true);
+
+    const powerQualityProblems = [];
+    if (voltage > 0 && voltage < DEVICE_DIAG.voltageWarnMinV) powerQualityProblems.push(`Spannung niedrig ${voltage.toFixed(0)}V`);
+    if (voltage > DEVICE_DIAG.voltageWarnMaxV) powerQualityProblems.push(`Spannung hoch ${voltage.toFixed(0)}V`);
+    if (frequency > 0 && frequency < DEVICE_DIAG.frequencyWarnMinHz) powerQualityProblems.push(`Frequenz niedrig ${frequency.toFixed(2)}Hz`);
+    if (frequency > DEVICE_DIAG.frequencyWarnMaxHz) powerQualityProblems.push(`Frequenz hoch ${frequency.toFixed(2)}Hz`);
+
+    if (powerQualityProblems.length > 0) {
+        const msg = `Netzqualität auffällig: ${powerQualityProblems.join(' | ')}. [NET001]`;
+        setState(DP.diagPowerQualityStatus, msg, true);
+        _warnOnce('powerQuality', msg, 'system');
+    } else {
+        setState(DP.diagPowerQualityStatus, 'OK', true);
+    }
+
+    if (auxActive || selvActive || auxPower > 0) {
+        _warnOnce('relayAux', `Relais/AUX aktiv: AUX=${auxActive}, SELV=${selvActive}, AUX-Leistung=${auxPower}W. [REL001]`, 'system');
+    }
+
+    if (fwUpdate !== 0 && fwUpdate !== 1) {
+        _warnOnce('firmwareUpdate', `Firmware-Update-State auffällig: ${fwUpdate}. [FW001]`, 'system');
+    }
+
+    if (controllerTemp >= controllerCritical) {
+        _controllerTempFaultLatched = true;
+        setFaultActive('CPU002', ACK_STATUS.NICHT_QUITTIERBAR);
+        const msg = `Controller-Übertemperatur: ${controllerTemp.toFixed(1)}°C ≥ ${controllerCritical.toFixed(1)}°C – Heizstab abgeschaltet. [CPU002]`;
+        const st = String(getState(DP.status)?.val || '');
+        if (!st.includes('[CPU002]')) {
+            setState(DP.status, msg, true);
+            appendLog(msg);
+            sendPushover(msg, 'system');
+        }
+        setPWM_Immediate(0);
+        setState(DP.sollWattRaw, 0, true);
+        setState(DP.aktiv, false, true);
+        _sperreAktiv = true;
+        updateAckBlink();
+        return false;
+    }
+
+    if (_controllerTempFaultLatched) {
+        setFaultActive('CPU002', _currentAckStatusFor('CPU002'));
+        updateAckBlink();
+    }
+
+    return true;
+}
+
 /* ==========================================================
    4) PWM-ANSTEUERUNG & RAMPE (Ausgabe über dutyPercent 0/1–99)
    ========================================================== */
@@ -724,7 +892,7 @@ function updateAmpel() {
         wantRed = true;
     } else if (status.includes('[TP002]') || status.includes('[TP001]') || status.includes('Übertemperatur')) {
         wantRed = true;
-    } else if (status.includes('[ABW001]') || status.includes('[FI001]')) {
+    } else if (status.includes('[ABW001]') || status.includes('[FI001]') || status.includes('[CPU002]')) {
     wantRed = true;
 } else if (status.includes('[TP003]')) {
         wantGreen = true;
@@ -923,6 +1091,9 @@ function refreshDynamicFaultStatuses() {
     if (_activeFaults.has('FI001')) {
     setFaultActive('FI001', _currentAckStatusFor('FI001'));
 }
+    if (_activeFaults.has('CPU002')) {
+        setFaultActive('CPU002', _currentAckStatusFor('CPU002'));
+    }
     if (_activeFaults.has('PWMERR')) {
         setFaultActive('PWMERR', _currentAckStatusFor('PWMERR'));
     }
@@ -1218,6 +1389,11 @@ if (!fiOK) {
 } else {
     _fiOffSinceTs = null;
 
+    if (!updateDeviceDiagnostics()) {
+        _regelzyklusRunning = false;
+        return;
+    }
+
     // Wenn FI-Fehler zuvor ausgelöst wurde: jetzt quittierbar (bis Reset)
     if (_fiFaultLatched) {
         setFaultActive('FI001', ACK_STATUS.QUITTIERBAR);
@@ -1324,6 +1500,9 @@ if (!fiOK) {
                 // FI-Latch zurücksetzen, wenn FI001 quittiert wurde
 if (!_activeFaults.has('FI001')) {
     _fiFaultLatched = false;
+}
+if (!_activeFaults.has('CPU002')) {
+    _controllerTempFaultLatched = false;
 }
 
                 // Sperre nur aufheben, wenn keine aktiven Fehler mehr vorhanden sind
@@ -1627,6 +1806,12 @@ function checkPumpScriptVersions() {
 on({ id: EXTERNAL.ueberschussW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzeinspeisung'));
 on({ id: EXTERNAL.netzverbrauchW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzverbrauch'));
 on({ id: EXTERNAL.fiHeizstabOK, change: 'ne' }, () => regelzyklus());
+on({ id: EXTERNAL.controllerTempC, change: 'ne' }, () => regelzyklus());
+on({ id: EXTERNAL.voltageL1V, change: 'ne' }, () => updateDeviceDiagnostics());
+on({ id: EXTERNAL.frequencyHz, change: 'ne' }, () => updateDeviceDiagnostics());
+on({ id: EXTERNAL.relayStatus, change: 'ne' }, () => updateDeviceDiagnostics());
+on({ id: EXTERNAL.auxPowerW, change: 'ne' }, () => updateDeviceDiagnostics());
+on({ id: EXTERNAL.fwUpdateState, change: 'ne' }, () => updateDeviceDiagnostics());
 on({ id: DP.lufttrocknerPauseRequest, change: 'ne' }, () => regelzyklus());
 
 // Event-getriggerte Regelung bei Geräte-Online-Statusänderungen
@@ -1637,6 +1822,7 @@ on({ id: EXTERNAL.wrFassadeOnline,  change: 'ne' }, () => regelzyklus());
 
 const _regelInterval = setInterval(regelzyklus, TIMES.regelIntervallSek * 1000);
 const _pumpScriptCheckInterval = setInterval(checkPumpScriptVersions, PUMP_SCRIPT_CHECK.intervalMs);
+const _deviceDiagInterval = setInterval(updateDeviceDiagnostics, DEVICE_DIAG.intervalMs);
 
 // Countdown aktualisieren (jede Sekunde)
 const _countdownInterval = setInterval(() => {
@@ -1674,6 +1860,7 @@ function gracefulShutdown(done) {
 
     _clearTimerSafe(_regelInterval, clearInterval);
     _clearTimerSafe(_pumpScriptCheckInterval, clearInterval);
+    _clearTimerSafe(_deviceDiagInterval, clearInterval);
     _clearTimerSafe(_countdownInterval, clearInterval);
     _clearTimerSafe(_rampInterval, clearInterval);
     _clearTimerSafe(_eventTimer, clearTimeout);
@@ -1742,6 +1929,7 @@ setState(DP.nextRunInSek, TIMES.regelIntervallSek, true);
 _lastNetzNettoW = (Number(getState(EXTERNAL.ueberschussW)?.val) || 0) - (Number(getState(EXTERNAL.netzverbrauchW)?.val) || 0);
 
 checkPumpScriptVersions();
+updateDeviceDiagnostics();
 
 // Initiale Ampel/Quittieranzeige
 updateAmpel();
