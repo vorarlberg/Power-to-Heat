@@ -1807,11 +1807,19 @@ on({ id: EXTERNAL.ueberschussW, change: 'ne' }, () => requestRegelzyklusByEvent(
 on({ id: EXTERNAL.netzverbrauchW, change: 'ne' }, () => requestRegelzyklusByEvent('Netzverbrauch'));
 on({ id: EXTERNAL.fiHeizstabOK, change: 'ne' }, () => regelzyklus());
 on({ id: EXTERNAL.controllerTempC, change: 'ne' }, () => regelzyklus());
-on({ id: EXTERNAL.voltageL1V, change: 'ne' }, () => updateDeviceDiagnostics());
-on({ id: EXTERNAL.frequencyHz, change: 'ne' }, () => updateDeviceDiagnostics());
-on({ id: EXTERNAL.relayStatus, change: 'ne' }, () => updateDeviceDiagnostics());
-on({ id: EXTERNAL.auxPowerW, change: 'ne' }, () => updateDeviceDiagnostics());
-on({ id: EXTERNAL.fwUpdateState, change: 'ne' }, () => updateDeviceDiagnostics());
+function registerDeviceDiagnosticTrigger(id) {
+    on(id, obj => {
+        if (!obj || !obj.oldState || obj.state.val !== obj.oldState.val) updateDeviceDiagnostics();
+    });
+}
+
+[
+    EXTERNAL.voltageL1V,
+    EXTERNAL.frequencyHz,
+    EXTERNAL.relayStatus,
+    EXTERNAL.auxPowerW,
+    EXTERNAL.fwUpdateState
+].forEach(registerDeviceDiagnosticTrigger);
 on({ id: DP.lufttrocknerPauseRequest, change: 'ne' }, () => regelzyklus());
 
 // Event-getriggerte Regelung bei Geräte-Online-Statusänderungen
