@@ -97,7 +97,7 @@ Das Hauptskript ist das zentrale Regelmodul für den Heizstab. Alle wichtigen Ze
 | `QUIET` | Nachtmodus für Online-Checks | Online-Prüfungen sind von `22:00` bis `04:00` pausiert. |
 | `OFFLINE` | Offline-Persistenz | Geräte müssen `15000 ms` offline sein, bevor gesperrt wird; Prüfung alle `1000 ms`. |
 | `FI` | FI/LS-Entprellung | FI/LS muss `2000 ms` aus sein, bevor hart abgeschaltet und gelatcht wird; Abtastung `250 ms`. |
-| `PARAM` | Default-Regelparameter | Delta-T-Regelbereich `5 K`, WW-Zieltemperatur `60 °C`. |
+| `PARAM` | Default-Regelparameter und Pushover | Delta-T-Regelbereich `5 K`, WW-Zieltemperatur `60 °C`; Systemmeldungen laufen über `pushover.0`, Solar-Meldungen über `pushover.1`. |
 | `WW_SICHER` | feste WW-Sicherstellungsleistung | `3450 W`. |
 | `RAMP` | Leistungsrampe | Maximal `100 W/s`, Ramptakt `1000 ms`. |
 | `EXTERNAL` | externe ioBroker-Datenpunkte | PV, Netz, Wechselrichter, Zähler, Temperaturen, Heizstab-Istleistung, Modbus-Verbindung und FI/LS. |
@@ -309,7 +309,7 @@ Wenn die Abweichung:
 - größer als `20 %` ist und
 - mindestens `5000 ms` bestehen bleibt,
 
-wird `ABW001` gesetzt, der Heizstab abgeschaltet und die Regelung gesperrt. Dieser Fehler ist quittierbar.
+wird `ABW001` gesetzt, der Heizstab abgeschaltet und die Regelung gesperrt. Dieser Fehler ist quittierbar. Nach 15 Minuten versucht das Skript einmalig eine automatische Quittierung; tritt `ABW001` danach innerhalb von 15 Minuten erneut auf, wird genau eine System-Pushover-Meldung über `pushover.0` gesendet und anschließend manuelle Quittierung erwartet.
 
 ### Kalibrierung
 
@@ -600,7 +600,7 @@ Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusä
 | `0_userdata.0.Heizung.Lufttrockner.IstLaeuft` | Ausgabe | Aus der Shelly-Leistung abgeleiteter Laufzustand. |
 | `0_userdata.0.Heizung.Lufttrockner.Status` | Ausgabe | Klartextstatus der Verbraucherlogik. |
 | `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Ausgabe | Letzter Grund für Ein-/Ausschalten oder Sperre. |
-| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Ausgabe | Zählt automatische PV-Abschaltungen am laufenden Tag; PV-Abschalt-/Tagessperren-Meldungen gehen über `pushover.1` als Solar-Meldungen. |
+| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Ausgabe | Zählt automatische PV-Abschaltungen am laufenden Tag; PV-Abschalt-/Tagessperren erzeugen keine Pushover-Meldungen mehr. |
 | `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Ausgabe | Sperrt nach zu vielen automatischen Abschaltungen bis Mitternacht. |
 | `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Ausgabe | Meldung bei Leistungsabfall, z. B. Tank voll oder Gerät aus; die Pushover-Meldung geht über `pushover.0` als Systemmeldung, kommt pro Ereignis nur einmal und wird erst nach wieder erkannter Leistungsaufnahme zurückgesetzt. |
 | `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Ausgabe | Zeigt, ob aktuell eine Heizstab-Reserve/Pause angefordert wird. |
@@ -645,7 +645,7 @@ Dieses Skript steuert einen Shelly Plug S Gen3 für einen Lufttrockner als zusä
 | `TP003` | WW-Sicherstellung aktiv/wartend | Heizstab heizt mit `3450 W` oder wartet in Hysterese. | keine. |
 | `TP004` | intern/extern >= Übertemperaturgrenze | Sofort aus, Sperre, rote LED. | erst quittierbar, wenn Temperatur wieder unter Grenze. |
 | `FI001` | FI/LS länger als `2 s` aus | Sofort aus, Sperre, rote LED. | erst quittierbar, wenn FI/LS wieder OK. |
-| `ABW001` | Istleistung weicht > `20 %` für `5 s` vom Soll ab | Heizstab aus, Sperre, rote LED. | quittierbar. |
+| `ABW001` | Istleistung weicht > `20 %` für `5 s` vom Soll ab | Heizstab aus, Sperre, rote LED. | quittierbar; nach fehlgeschlagenem einmaligem Auto-Reset wird genau eine System-Pushover-Meldung über `pushover.0` gesendet. |
 | `PWM400` / `PWMERR` | PWM-Gerät offline/Fehler | PWM auf `0`, rote LED. | abhängig vom aktuellen PWM-Fehlerstatus. |
 | `OFF010` | relevantes Gerät offline | Wartezeit läuft. | automatisch, wenn wieder online. |
 | `OFF090` | Nachtfenster aktiv | Online-Checks pausiert. | automatisch. |
