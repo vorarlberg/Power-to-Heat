@@ -1,6 +1,6 @@
 /************************************************************
  * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
- * Version: 2.9.2  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Version: 2.9.3  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
  * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
  ************************************************************/
 
@@ -10,7 +10,7 @@
 
 // --- Skript-Version / Update-Meldung ---
 const SCRIPT = {
-    version: '2.9.2',
+    version: '2.9.3',
     updateNotificationText: 'Skript wurde auf Version {version} aktualisiert.'
 };
 
@@ -124,8 +124,8 @@ const RAMP = {
 // --- Sauberer Skript-Stopp / Update ---
 const SHUTDOWN = {
     enabled: true,
-    rampDownMs: 8000,        // maximale Zeit, die beim Skript-Stopp sanft auf 0 W geregelt wird
-    rampStepMs: 500,         // Schrittweite der Shutdown-Rampe
+    rampDownMs: 60000,       // maximale Zeit, die beim Skript-Stopp sanft auf 0 W geregelt wird
+    rampStepMs: 1000,        // Schrittweite der Shutdown-Rampe
     statusText: 'Skript wird sauber gestoppt/aktualisiert – Heizstab fährt kontrolliert herunter. [SYS999]'
 };
 
@@ -512,9 +512,22 @@ function sendPushover(message, channel = 'system') {
     sendTo(adapter, payload);
 }
 
+function getStateValueSafe(id, fallback = '') {
+    try {
+        const state = existsObject(id) ? getState(id) : null;
+        if (!state || state.val === null || state.val === undefined) return fallback;
+        return state.val;
+    } catch (err) {
+        log(`[VERSION] Datenpunkt ${id} konnte nicht gelesen werden: ${err.message}`, 'warn');
+        return fallback;
+    }
+}
+
 function publishScriptVersionAndNotifyUpdate() {
-    const previousVersion = String(getState(DP.scriptVersion)?.val ?? '').trim();
-    const lastNotifiedVersion = String(getState(DP.scriptUpdateNotifiedVersion)?.val ?? '').trim();
+    const previousVersionRaw = getStateValueSafe(DP.scriptVersion, '');
+    const lastNotifiedVersionRaw = getStateValueSafe(DP.scriptUpdateNotifiedVersion, '');
+    const previousVersion = String(previousVersionRaw === 0 ? '' : previousVersionRaw).trim();
+    const lastNotifiedVersion = String(lastNotifiedVersionRaw === 0 ? '' : lastNotifiedVersionRaw).trim();
 
     setState(DP.scriptVersion, SCRIPT.version, true);
 
@@ -1940,7 +1953,7 @@ function gracefulShutdown(done) {
     tick();
 }
 
-onStop(gracefulShutdown, SHUTDOWN.rampDownMs + 2000);
+onStop(gracefulShutdown, SHUTDOWN.rampDownMs + 5000);
 
 /* ==========================================================
    9) INITIALISIERUNG
