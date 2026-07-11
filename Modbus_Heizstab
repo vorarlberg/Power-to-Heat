@@ -1,0 +1,1498 @@
+{
+  "modbus.2.holdingRegisters.1.1000_Power": {
+    "_id": "modbus.2.holdingRegisters.1.1000_Power",
+    "type": "state",
+    "common": {
+      "name": "0-3.500 for Mode 1, 0-6.500 for Mode 3 In Multi-Mode this is the power sum of all devices, max 65.535",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "W"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1000,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670087,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern": {
+    "_id": "modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value.temperature",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "°C"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1001,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 0.1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670100,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 22.8,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1002_Tmax": {
+    "_id": "modbus.2.holdingRegisters.1.1002_Tmax",
+    "type": "state",
+    "common": {
+      "name": "(target temperature solar powered)",
+      "role": "value.temperature",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "°C"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1002,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 0.1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670104,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 95,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1003_(R)_Status": {
+    "_id": "modbus.2.holdingRegisters.1.1003_(R)_Status",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1003,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670107,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 3,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1004_Power_timout": {
+    "_id": "modbus.2.holdingRegisters.1.1004_Power_timout",
+    "type": "state",
+    "common": {
+      "name": "10-600 sec",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "sek."
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1004,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670109,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 10,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1005_Boost_mode": {
+    "_id": "modbus.2.holdingRegisters.1.1005_Boost_mode",
+    "type": "state",
+    "common": {
+      "name": "0: off 1: on = ELWA (for Mode 1) 1: on = ELWA + AUX relay (for Mode 3) 4: SELV relay 5: AUX relay (only for Mode 3)",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1005,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670111,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1006_Tmin": {
+    "_id": "modbus.2.holdingRegisters.1.1006_Tmin",
+    "type": "state",
+    "common": {
+      "name": "(Boost backup target temperature)",
+      "role": "value.temperature",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "°C"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1006,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 0.1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670113,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 94,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1007_Boost_time_1_start": {
+    "_id": "modbus.2.holdingRegisters.1.1007_Boost_time_1_start",
+    "type": "state",
+    "common": {
+      "name": "0-23hrs",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "hrs"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1007,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670115,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1008_Boost_time_1_stop": {
+    "_id": "modbus.2.holdingRegisters.1.1008_Boost_time_1_stop",
+    "type": "state",
+    "common": {
+      "name": "0-24hrs",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "hrs"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1008,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670117,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 24,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1009_Actual_Time": {
+    "_id": "modbus.2.holdingRegisters.1.1009_Actual_Time",
+    "type": "state",
+    "common": {
+      "name": "0-23h",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "h"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1009,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670120,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 12,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1010_Actual_Time": {
+    "_id": "modbus.2.holdingRegisters.1.1010_Actual_Time",
+    "type": "state",
+    "common": {
+      "name": "0-59",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "min."
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1010,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670124,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 44,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1011_Actual_Time": {
+    "_id": "modbus.2.holdingRegisters.1.1011_Actual_Time",
+    "type": "state",
+    "common": {
+      "name": "0-59",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "sek."
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1011,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670127,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 5,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1012_Boost_activate": {
+    "_id": "modbus.2.holdingRegisters.1.1012_Boost_activate",
+    "type": "state",
+    "common": {
+      "name": "Bit 0 = 0, Bit 1 = 0: off Bit 0 = 1: autoboost Bit 1 = 1: manual ",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1012,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670130,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1013_AC_ELWA_2_Number": {
+    "_id": "modbus.2.holdingRegisters.1.1013_AC_ELWA_2_Number",
+    "type": "state",
+    "common": {
+      "name": "boost Standard is 1",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1013,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670131,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 1,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1014_max_Power": {
+    "_id": "modbus.2.holdingRegisters.1.1014_max_Power",
+    "type": "state",
+    "common": {
+      "name": "500-3500W",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "W"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1014,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670132,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 3500,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1015_(R)_tempchip": {
+    "_id": "modbus.2.holdingRegisters.1.1015_(R)_tempchip",
+    "type": "state",
+    "common": {
+      "name": "Controller temperature",
+      "role": "value.temperature",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "°C"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1015,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 0.1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670134,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 33.2,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1016_(R)_Controller_firmware_main_version": {
+    "_id": "modbus.2.holdingRegisters.1.1016_(R)_Controller_firmware_main_version",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1016,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670135,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 14,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1017_(R)_Powerstage_firmware_version": {
+    "_id": "modbus.2.holdingRegisters.1.1017_(R)_Powerstage_firmware_version",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1017,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670136,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 108,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1026_Boost_time_2_start": {
+    "_id": "modbus.2.holdingRegisters.1.1026_Boost_time_2_start",
+    "type": "state",
+    "common": {
+      "name": "0-23 hrs",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "hrs"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1026,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670138,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1027_Boost_time_2_stop": {
+    "_id": "modbus.2.holdingRegisters.1.1027_Boost_time_2_stop",
+    "type": "state",
+    "common": {
+      "name": "0-24 hrs",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "hrs"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1027,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670139,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1028_(R)_Controller_firmware_sub_version": {
+    "_id": "modbus.2.holdingRegisters.1.1028_(R)_Controller_firmware_sub_version",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1028,
+      "deviceId": 1,
+      "type": "uint16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670140,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 1,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1029_(R)_Controller_firmware_update_state": {
+    "_id": "modbus.2.holdingRegisters.1.1029_(R)_Controller_firmware_update_state",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1029,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670142,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 1,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1030_Temp_2": {
+    "_id": "modbus.2.holdingRegisters.1.1030_Temp_2",
+    "type": "state",
+    "common": {
+      "name": " (external Sensor of AC ELWA 2)",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "°C"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1030,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 0.1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670143,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 22.4,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1053_Legionella_interval": {
+    "_id": "modbus.2.holdingRegisters.1.1053_Legionella_interval",
+    "type": "state",
+    "common": {
+      "name": "1-14 days",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "days"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1053,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670144,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 7,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1054_Legionella_start": {
+    "_id": "modbus.2.holdingRegisters.1.1054_Legionella_start",
+    "type": "state",
+    "common": {
+      "name": "0-23 hrs",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "hrs"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1054,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670146,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 20,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1055_Legionella_temp": {
+    "_id": "modbus.2.holdingRegisters.1.1055_Legionella_temp",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value.temperature",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "°C"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1055,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670147,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 60,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1056_Legionella_mode": {
+    "_id": "modbus.2.holdingRegisters.1.1056_Legionella_mode",
+    "type": "state",
+    "common": {
+      "name": "0,1",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1056,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670148,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1058_(R)_Relay_status": {
+    "_id": "modbus.2.holdingRegisters.1.1058_(R)_Relay_status",
+    "type": "state",
+    "common": {
+      "name": "bit 0 AUX (0 off; 1 on) bit 1 SELV (0 off; 1 on)",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1058,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670150,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1061_(R)_U_L1": {
+    "_id": "modbus.2.holdingRegisters.1.1061_(R)_U_L1",
+    "type": "state",
+    "common": {
+      "name": "power stage input voltage",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "V"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1061,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670151,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 230,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1064_(R)_Frequenz": {
+    "_id": "modbus.2.holdingRegisters.1.1064_(R)_Frequenz",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "Hz"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1064,
+      "deviceId": 1,
+      "type": "uint16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 0.001,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670154,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 50.03,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1065_Operation_mode": {
+    "_id": "modbus.2.holdingRegisters.1.1065_Operation_mode",
+    "type": "state",
+    "common": {
+      "name": "1,3",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1065,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670156,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 1,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1067_(R)_U_L2": {
+    "_id": "modbus.2.holdingRegisters.1.1067_(R)_U_L2",
+    "type": "state",
+    "common": {
+      "name": "AUX relay voltage",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "V"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1067,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670158,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 4,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1068_(R)_I_L2": {
+    "_id": "modbus.2.holdingRegisters.1.1068_(R)_I_L2",
+    "type": "state",
+    "common": {
+      "name": "AUX relay current",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "A"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1068,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670160,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1069_(R)_Meter_Power": {
+    "_id": "modbus.2.holdingRegisters.1.1069_(R)_Meter_Power",
+    "type": "state",
+    "common": {
+      "name": "integer, negative is feed in",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1069,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670161,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1070_(R)_Control_type": {
+    "_id": "modbus.2.holdingRegisters.1.1070_(R)_Control_type",
+    "type": "state",
+    "common": {
+      "name": "Auto Detect 0, Modbus TCP 2",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1070,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670163,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 2,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1074_(R)_P_out1": {
+    "_id": "modbus.2.holdingRegisters.1.1074_(R)_P_out1",
+    "type": "state",
+    "common": {
+      "name": "Power at ELWA immersion heater",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "W"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1074,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670165,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1075_(R)_P_out2": {
+    "_id": "modbus.2.holdingRegisters.1.1075_(R)_P_out2",
+    "type": "state",
+    "common": {
+      "name": "Power at AUX relay",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "W"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1075,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670168,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1077_(R)_operation_state": {
+    "_id": "modbus.2.holdingRegisters.1.1077_(R)_operation_state",
+    "type": "state",
+    "common": {
+      "name": "see Footnote 3",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1077,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670170,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1080_Power_+_AUX_relay": {
+    "_id": "modbus.2.holdingRegisters.1.1080_Power_+_AUX_relay",
+    "type": "state",
+    "common": {
+      "name": "bit 14: AUX relay bit 11 – 0: PS power 0 – 3.500",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": "W"
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1080,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670171,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1081_Device_state": {
+    "_id": "modbus.2.holdingRegisters.1.1081_Device_state",
+    "type": "state",
+    "common": {
+      "name": "0,1",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1081,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670173,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 1,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1082_(R)_Power_of_the_queried_device": {
+    "_id": "modbus.2.holdingRegisters.1.1082_(R)_Power_of_the_queried_device",
+    "type": "state",
+    "common": {
+      "name": "without slaves, 1082=1083+1084",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1082,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670176,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1083_(R)_Solar_part_of_device_power": {
+    "_id": "modbus.2.holdingRegisters.1.1083_(R)_Solar_part_of_device_power",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1083,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670178,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1084_(R)_Grid_part_of_device_power": {
+    "_id": "modbus.2.holdingRegisters.1.1084_(R)_Grid_part_of_device_power",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1084,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670179,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 0,
+    "ack": true
+  },
+  "modbus.2.holdingRegisters.1.1086_(R)_Co-Controller_firmware_version": {
+    "_id": "modbus.2.holdingRegisters.1.1086_(R)_Co-Controller_firmware_version",
+    "type": "state",
+    "common": {
+      "name": "",
+      "role": "value",
+      "type": "number",
+      "read": true,
+      "write": true,
+      "def": 0,
+      "unit": ""
+    },
+    "native": {
+      "regType": "holdingRegs",
+      "address": 1086,
+      "deviceId": 1,
+      "type": "int16be",
+      "len": 1,
+      "offset": 0,
+      "factor": 1,
+      "poll": true
+    },
+    "from": "system.adapter.modbus.2",
+    "user": "system.user.admin",
+    "ts": 1782743670181,
+    "acl": {
+      "object": 1636,
+      "state": 1636,
+      "owner": "system.user.admin",
+      "ownerGroup": "system.group.administrator"
+    },
+    "val": 104,
+    "ack": true
+  }
+}
