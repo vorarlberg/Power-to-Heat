@@ -1,12 +1,18 @@
 /************************************************************
  * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
- * Version: 2.9.1  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Version: 2.9.2  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
  * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
  ************************************************************/
 
 /* ==========================================================
    1) KONFIGURATION – Zeiten, Grenzen, externe DPs
    ========================================================== */
+
+// --- Skript-Version / Update-Meldung ---
+const SCRIPT = {
+    version: '2.9.2',
+    updateNotificationText: 'Skript wurde auf Version {version} aktualisiert.'
+};
 
 // --- Zeiten / Intervalle ---
 const TIMES = {
@@ -223,6 +229,8 @@ const DP = {
     ackBlink:           BASE + 'Regelung.QuittierTaster_Blink',  // vom Skript geschaltet (Blink-LED/Anzeige)
     pumpScriptsOk:      BASE + 'Regelung.PumpenSkripte_OK',
     pumpScriptsError:   BASE + 'Regelung.PumpenSkripte_Fehler',
+    scriptVersion:      BASE + 'Regelung.ScriptVersion',
+    scriptUpdateNotifiedVersion: BASE + 'Regelung.ScriptUpdateNotifiedVersion',
 
     // Parameter
     deltaT:             BASE + 'Parameter.DeltaT_Regelbereich',
@@ -320,6 +328,8 @@ ensureStateButton(DP.resetFail, 'Fehler-Reset');          // BUTTON
 ensureStateBoolRO(DP.ackBlink, 'Quittiertaster blinkt (RO)');
 ensureStateBoolRO(DP.pumpScriptsOk, 'Pumpenskripte auf Soll-Version (RO)');
 ensureStateRO(DP.pumpScriptsError, { name: 'Pumpenskripte Versionsfehler (RO)', type: 'string', role: 'text' });
+ensureStateRO(DP.scriptVersion, { name: 'Hauptskript Version (RO)', type: 'string', role: 'text' });
+ensureStateRO(DP.scriptUpdateNotifiedVersion, { name: 'Letzte gemeldete Hauptskript-Version (RO)', type: 'string', role: 'text' });
 ensureStateButton(DP.kalStart, 'Kalibrierung starten');   // BUTTON
 ensureStateButton(DP.selfStart, 'Selbsttest starten');    // BUTTON
 
@@ -500,6 +510,22 @@ function sendPushover(message, channel = 'system') {
 
     if (PARAM.pushoverSound) payload.sound = PARAM.pushoverSound;
     sendTo(adapter, payload);
+}
+
+function publishScriptVersionAndNotifyUpdate() {
+    const previousVersion = String(getState(DP.scriptVersion)?.val ?? '').trim();
+    const lastNotifiedVersion = String(getState(DP.scriptUpdateNotifiedVersion)?.val ?? '').trim();
+
+    setState(DP.scriptVersion, SCRIPT.version, true);
+
+    if (previousVersion && previousVersion !== SCRIPT.version && lastNotifiedVersion !== SCRIPT.version) {
+        const message = SCRIPT.updateNotificationText.replace('{version}', SCRIPT.version);
+        sendPushover(message, 'system');
+        appendLog(`SYS001: ${message}`);
+        setState(DP.scriptUpdateNotifiedVersion, SCRIPT.version, true);
+    } else if (!lastNotifiedVersion) {
+        setState(DP.scriptUpdateNotifiedVersion, SCRIPT.version, true);
+    }
 }
 
 function appendLog(message) {
@@ -1920,6 +1946,7 @@ onStop(gracefulShutdown, SHUTDOWN.rampDownMs + 2000);
    9) INITIALISIERUNG
    ========================================================== */
 
+publishScriptVersionAndNotifyUpdate();
 setState(DP.aktiv, false, true);
 setState(DP.ackBlink, false, true);
 setState(DP.status, 'Initialisierung abgeschlossen. Warte auf PV-Überschuss. [SYS000]', true);
