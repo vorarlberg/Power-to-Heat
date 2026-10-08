@@ -1,418 +1,259 @@
-# Power-to-Heat Anlagen-Wiki
+# Power-to-Heat – Anwender-Wiki
 
-Dieses Wiki ist als GitHub-Wiki-Seite für Anwender der Anlage gedacht. Es beschreibt die Bedienung, die sichtbaren Zustände und die einstellbaren Datenpunkte der Power-to-Heat-Anlage – ohne Code-Erklärung.
+Dieses Wiki erklärt die Bedienung der Anlage, ihre Anzeigen und das Vorgehen bei Störungen. Die Bedienung erfolgt über die Anlagenvisualisierung.
 
-> **Wichtig:** Die Anlage arbeitet mit Netzspannung, Heizstab, Pumpen und Temperaturen. Änderungen an Grenzwerten, Betriebsarten oder Hardware-Datenpunkten dürfen nur vorgenommen werden, wenn die Auswirkungen bekannt sind. Sicherheitsfunktionen wie FI/LS, Übertemperatur und Offline-Überwachung dürfen nicht dauerhaft überbrückt werden.
+> **Sicherheit:** Die Anlage arbeitet mit Netzspannung und hohen Temperaturen. Arbeiten an elektrischen Bauteilen gehören in die Hände einer Fachkraft. Schutzfunktionen dürfen nicht überbrückt werden. Bei wiederkehrenden Störungen die Ursache klären lassen.
 
----
+## 1. Was macht die Anlage?
 
-## 1. Zweck der Anlage
+Die Anlage nutzt überschüssigen Strom der Photovoltaikanlage, um mit einem Heizstab Wärme zu erzeugen. Diese Wärme wird im Puffer gespeichert und kann für die Warmwasserversorgung genutzt werden.
 
-Die Anlage nutzt PV-Überschuss, um elektrische Energie in Wärme umzuwandeln. Der Heizstab lädt dabei den Puffer bzw. das Warmwassersystem, wenn genügend Überschuss vorhanden ist oder wenn die Warmwasser-Sicherstellung aktiv wird.
+Im Alltag regelt die Anlage die Heizleistung automatisch. Sie steuert die Pumpen, überwacht Temperaturen und Geräte und zeigt Betriebszustände sowie Störungen an. Ein Lufttrockner kann ebenfalls überschüssigen PV-Strom nutzen.
 
-Die Steuerung übernimmt im Alltag:
+Wenn die Warmwasser-Sicherstellung eingeschaltet ist, kann der Heizstab auch Strom aus dem Netz beziehen.
 
-- Erkennen von PV-Überschuss und Netzbezug.
-- Leistungsregelung des Heizstabs bis maximal 3.500 W.
-- Warmwasser-Sicherstellung bei zu niedriger Speichertemperatur.
-- Schutz bei Übertemperatur, FI/LS-Ausfall, Offline-Geräten und Leistungsabweichungen.
-- Koordination von Speicherladepumpe, Heizkreispumpe und Warmwasser-Zirkulationspumpe.
-- PV-geführte Einbindung eines Lufttrockners mit Heizstab-Reserve.
-- Anzeige von Status, Fehlern, LED-Farben und Meldungslog.
+## 2. Die Visualisierung verstehen
 
----
+### Energie und Temperaturen
 
-## 2. Visualisierung lesen
-
-Die Visualisierung zeigt links den Energiefluss und rechts Bedienung, Meldungen und Grenzwerte.
-
-### Energiefluss
-
-- **Dach / Fassade:** aktuelle PV-Leistung der beiden Wechselrichter.
-- **Verbrauch:** aktueller Verbrauch der Anlage bzw. des betrachteten Systems.
-- **Netz:** aktueller Netzbezug oder Einspeisung.
-- **Heizstab:** aktuelle Heizstableistung und Temperaturen am Heizstab.
-- **Temperaturfelder unten:** relevante Anlagen- und Speicherfühler.
-
-### Pumpenanzeige
-
-Hinter jeder Pumpe befindet sich ein **grüner Punkt**:
-
-- **Grüner Punkt sichtbar/an:** Die jeweilige Pumpe ist gerade eingeschaltet.
-- **Kein grüner Punkt bzw. Punkt aus:** Die jeweilige Pumpe ist aktuell ausgeschaltet.
-
-Das betrifft insbesondere:
-
-- Speicherladepumpe / WW-Speicherladepumpe.
-- Heizkreispumpe.
-- Warmwasser-Zirkulationspumpe, sofern sie in der Visualisierung dargestellt ist.
-
-### Meldungstabelle
-
-Die Tabelle zeigt Ereignisse und Fehler in zeitlicher Reihenfolge.
-
-| Spalte | Bedeutung |
+| Anzeige | Bedeutung |
 | --- | --- |
-| Zeit | Zeitpunkt der Meldung. |
-| Meldung | Klartextbeschreibung, was passiert ist. |
-| Fehlercode | Technischer Code zur Zuordnung. |
-| Status | z. B. `QUITTIERBAR`, `NICHT_QUITTIERBAR` oder `QUITTIERT`. |
+| Dach / Fassade | Aktuelle PV-Leistung der beiden Wechselrichter. |
+| Verbrauch | Aktueller Stromverbrauch des angezeigten Systems. |
+| Netz | Aktueller Netzbezug oder Einspeisung. |
+| Heizstab | Aktuelle Heizleistung und Temperaturen am Heizstab. |
+| Temperaturfelder | Temperaturen der angezeigten Anlagen- und Speicherfühler. |
 
-Bei quittierbaren Fehlern kann über **Quittieren** ein Reset versucht werden. Nicht quittierbare Fehler müssen zuerst physikalisch verschwinden, z. B. Temperatur wieder unter Grenzwert oder FI/LS wieder eingeschaltet.
+Die Heizleistung kann sich langsam ändern. Das ist normal: Die Anlage passt sie schrittweise an den verfügbaren Überschuss an.
 
----
+### Pumpen
 
-## 3. Betriebsarten
+Ein grüner Punkt hinter einer Pumpe bedeutet, dass diese eingeschaltet ist. Ist der Punkt aus, ist die Pumpe ausgeschaltet. Bei Problemen zusätzlich die zugehörige Statusmeldung lesen.
 
-Der Datenpunkt **`0_userdata.0.Heizstab.V2.Regelung.Betriebsmodus`** bestimmt die Hauptbetriebsart.
+### Meldungen
 
-| Betriebsart | Bedeutung für Anwender |
+Die Meldungstabelle zeigt Ereignisse mit Zeitpunkt, Beschreibung, Fehlercode und Status. Der Fehlercode hilft bei Rückfragen an den Anlagenbetreuer.
+
+| Status | Bedeutung |
 | --- | --- |
-| `Heizstabbetrieb` | Normaler PV-Heizbetrieb. Der Heizstab darf Überschuss nutzen. Die Speicherladepumpe arbeitet temperaturgeführt. Die Heizkreispumpe läuft grundsätzlich, wird aber nur bei automatischem Speicherladepumpen-Vorrang abgeschaltet. |
-| `Unterstützungsbetrieb` | Unterstützender Betrieb mit externer Kessel-/Logikfreigabe. Die Heizstabregelung kann PV-Überschuss nutzen, wenn sie freigegeben ist. Die Speicherladepumpe folgt der externen Freigabe. Die Heizkreispumpe soll eingeschaltet sein. |
-| `Kesselbetrieb` | Heizstab wird deaktiviert. Die manuelle Heizstabfreigabe wird ausgeschaltet. Die Speicherladepumpe folgt der externen Kessel-/Logikfreigabe. Die Heizkreispumpe soll ausgeschaltet sein. |
+| QUITTIERBAR | Die Meldung kann über **Quittieren** zurückgesetzt werden, wenn die Ursache behoben ist. |
+| NICHT_QUITTIERBAR | Die Ursache liegt noch an oder verhindert eine Rücksetzung. |
+| QUITTIERT | Die Meldung wurde bestätigt beziehungsweise zurückgesetzt. |
 
-Zusätzlich muss für Heizstabregelung **`0_userdata.0.Heizstab.V2.Regelung.ENABLE = true`** gesetzt sein. Ist diese Freigabe aus, bleibt der Heizstab aus, auch wenn PV-Überschuss vorhanden ist.
+Nicht jede Meldung ist eine Störung. Zu wenig PV-Überschuss oder eine erreichte Zieltemperatur sind normale Betriebszustände.
 
----
+## 3. Betriebsart wählen
 
-## 4. Einstellbare Haupt-Datenpunkte
+| Betriebsart | Verhalten der Anlage |
+| --- | --- |
+| Heizstabbetrieb | Der Heizstab nutzt PV-Überschuss. Die Speicherladepumpe arbeitet abhängig von den Temperaturen. Die Heizkreispumpe läuft grundsätzlich; bei automatischer Warmwasserladung kann sie vorübergehend ausgeschaltet werden. |
+| Unterstützungsbetrieb | Der Heizstab kann bei vorhandener Freigabe PV-Überschuss nutzen. Die Speicherladepumpe richtet sich nach der externen Kesselfreigabe und den Temperaturbedingungen. Die Heizkreispumpe soll eingeschaltet sein. |
+| Kesselbetrieb | Der Heizstab ist deaktiviert und seine manuelle Freigabe wird ausgeschaltet. Die Speicherladepumpe richtet sich nach der externen Kesselfreigabe und den Temperaturbedingungen. Die Heizkreispumpe soll ausgeschaltet sein. |
 
-Alle Hauptdatenpunkte liegen unter **`0_userdata.0.Heizstab.V2.`**.
+Damit der Heizstab arbeiten kann, muss zusätzlich die **Heizstabfreigabe** eingeschaltet sein. Nach einem Wechsel aus dem Kesselbetrieb diese Freigabe prüfen.
 
-### Regelung und Bedienung
+## 4. Wichtige Einstellungen
 
-| Datenpunkt | Typ | Bedeutung |
+Die folgenden Werte beschreiben die Standardeinstellungen. Maßgeblich sind die tatsächlich eingestellten Werte der Anlage.
+
+| Einstellung | Standard oder Auswahl | Bedeutung |
 | --- | --- | --- |
-| `Regelung.ENABLE` | Ein/Aus | Manuelle Freigabe der Heizstabregelung. `false` bedeutet: Heizstab bleibt aus. |
-| `Regelung.Betriebsmodus` | Auswahl | Auswahl zwischen `Heizstabbetrieb`, `Unterstützungsbetrieb` und `Kesselbetrieb`. |
-| `Regelung.Fail_Reset` | Button | Fehlerquittierung für quittierbare Fehler. |
-| `Kalibrierung.Start` | Button | Startet die Heizstab-Kalibrierung. Nur unter kontrollierten Bedingungen verwenden. |
-| `Selbsttest.Start` | Button | Startet einen Funktionstest mit kleiner Heizleistung. |
-| `Ampel.StandbyBlink_ENABLE` | Ein/Aus | Erlaubt die grüne Standby-Anzeige bei zu wenig Überschuss. |
+| Heizstabfreigabe | Ein/Aus | Erlaubt den Heizbetrieb. Bei ausgeschalteter Freigabe bleibt der Heizstab aus. |
+| Warmwasser-Sicherstellung | Standard: Aus | Erlaubt das Nachheizen für die Warmwasserversorgung auch ohne ausreichenden PV-Überschuss. |
+| Warmwasser-Zieltemperatur | 60 °C | Zielwert für die Warmwasser-Sicherstellung und die automatische Speicherladung. |
+| Temperaturabstand für das Wiedereinschalten | 5 °C | Verhindert häufiges Ein- und Ausschalten nahe der Temperaturgrenze. |
+| Untere Warmwassergrenze | 30 °C | Untere Grenze für die aktivierte Warmwasser-Sicherstellung. |
+| Maximaltemperatur | 75 °C | Temperaturgrenze für den normalen Heizbetrieb. |
+| Grüne Standby-Anzeige | Ein/Aus | Legt fest, ob die Bereitschaft bei zu wenig Überschuss grün angezeigt wird. |
 
-### Temperatur- und Warmwasserparameter
-
-| Datenpunkt | Default | Bedeutung |
-| --- | ---: | --- |
-| `Parameter.WW_Zieltemperatur` | 60 °C | Zieltemperatur für die Warmwasser-Sicherstellung und Speicherladepumpenlogik. |
-| `Parameter.DeltaT_Regelbereich` | 5 K | Hysterese. Verhindert ständiges Ein-/Ausschalten rund um einen Grenzwert. |
-| `Parameter.MinTemp` | 30 °C | Untere Warmwassergrenze. Bei aktivierter Sicherstellung wird spätestens hier geheizt. |
-| `Parameter.MaxTemp` | 75 °C | Normale Maximaltemperatur. Ab hier wird der Heizstab gesperrt, bis die Temperatur um Delta-T gefallen ist oder die zusätzliche Schichtungs-Freigabe greift. |
-| `Parameter.Übertemperatur_intern` | 97 °C | Harte Sicherheitsgrenze am internen Heizstabfühler. |
-| `Parameter.Übertemperatur_extern` | 97 °C | Harte Sicherheitsgrenze am externen Heizstab-/Pufferfühler. |
-| `Parameter.WW_Sicherstellung_AN` | aus | Aktiviert die Warmwasser-Sicherstellung. |
-
-### Anzeige- und Diagnose-Datenpunkte
-
-| Datenpunkt | Bedeutung |
-| --- | --- |
-| `Regelung.AKTIV` | Zeigt, ob die Heizstabregelung aktuell aktiv heizt. |
-| `Regelung.Status` | Aktueller Klartextstatus mit Code. |
-| `Regelung.Log` | Meldungslog als JSON; neueste Einträge oben. |
-| `Regelung.NextRunIn_Sek` | Countdown bis zur nächsten regulären Regelberechnung. |
-| `Regelung.PWM_Target_Watt` | Ziel-Leistung, auf die die Rampe fährt. |
-| `Regelung.PWM_Watt` | Aktuell gerampte Sollleistung. |
-| `Regelung.PWM_Prozent` | Aktueller PWM-Ausgabewert in Prozent. |
-| `Regelung.Soll_Watt_Unkalibriert` | Berechnete Roh-Sollleistung vor Kalibrierkorrektur. |
-| `Regelung.QuittierTaster_Blink` | Blinkt, wenn ein quittierbarer Fehler ansteht. |
-| `Regelung.PumpenSkripte_OK` | Zeigt, ob die erwarteten Pumpenskriptversionen vorhanden sind. |
-| `Regelung.PumpenSkripte_Fehler` | Textinformation bei Versionsabweichung. |
-
----
+Die Übertemperaturabschaltung ist eine Sicherheitsfunktion und keine Einstellung für den täglichen Betrieb. Die beschriebenen Standardgrenzen liegen bei 97 °C am internen und externen Heizstabfühler. Änderungen an Sicherheitsgrenzen mit dem Anlagenbetreuer abstimmen.
 
 ## 5. Wann heizt der Heizstab?
 
-Der Heizstab kann nur heizen, wenn alle folgenden Bedingungen erfüllt sind:
+Für den Heizbetrieb müssen die Heizstabfreigabe eingeschaltet, eine passende Betriebsart gewählt und die Temperatur- und Sicherheitsbedingungen erfüllt sein. Eine aktive Störung kann den Betrieb sperren.
 
-1. Betriebsmodus ist nicht `Kesselbetrieb`.
-2. `Regelung.ENABLE` steht auf `true`.
-3. Kein harter Fehler ist aktiv.
-4. FI/LS meldet OK.
-5. Relevante Geräte sind online oder Online-Prüfung ist im Nachtfenster pausiert.
-6. Temperaturgrenzen lassen den Betrieb zu.
-7. Entweder ist genügend PV-Überschuss vorhanden oder die Warmwasser-Sicherstellung fordert Wärme an.
+### Betrieb mit PV-Überschuss
 
-### PV-Überschussbetrieb
+Der Heizstab startet bei ungefähr 600 W verfügbarem Überschuss und schaltet bei ungefähr 400 W oder weniger wieder aus. Die unterschiedlichen Ein- und Ausschaltschwellen verhindern häufige Starts und Stopps.
 
-Die Anlage berücksichtigt, dass der Heizstab selbst bereits Strom verbraucht. Deshalb wird die verfügbare Leistung aus Netzleistung und aktueller Heizstableistung zurückgerechnet.
-
-Schaltverhalten:
-
-- **Einschalten:** wenn verfügbarer Überschuss über ca. 600 W liegt.
-- **Ausschalten:** wenn verfügbarer Überschuss auf ca. 400 W oder darunter fällt.
-- **Leistungsbereich:** 0 bis 3.500 W.
-- **Rampe:** maximal 100 W pro Sekunde, damit die Leistung nicht sprunghaft wechselt.
+Die Heizleistung wird automatisch angepasst und beträgt höchstens 3.500 W. Sie verändert sich mit maximal 100 W pro Sekunde. Bei wechselnder Bewölkung sind Änderungen der Heizleistung daher normal.
 
 ### Warmwasser-Sicherstellung
 
-Wenn **`Parameter.WW_Sicherstellung_AN = true`**, hat Warmwasser Vorrang vor normalem PV-Überschussbetrieb.
+Ist die Warmwasser-Sicherstellung eingeschaltet, fordert sie bei zu niedriger Temperatur Wärme an.
 
-Mit den Defaultwerten gilt:
+Mit den Standardeinstellungen gilt:
 
-- Zieltemperatur: 60 °C.
-- Delta-T: 5 K.
-- Einschalten bei 55 °C oder darunter.
-- Ausschalten bei 60 °C oder darüber.
-- Feste Heizleistung während Sicherstellung: 3.450 W.
+- Start bei 55 °C oder darunter.
+- Ende bei 60 °C oder darüber.
+- Heizleistung während der Sicherstellung: 3.450 W.
 
-Die Sicherstellung kann auch dann heizen, wenn nicht genug PV-Überschuss vorhanden ist. Sie dient dazu, eine Mindestversorgung mit Warmwasser sicherzustellen.
+Die Funktion kann Netzstrom verbrauchen. Sie sollte eingeschaltet sein, wenn diese zusätzliche Warmwasserversorgung gewünscht ist. Sicherheitsabschaltungen bleiben wirksam.
 
----
+## 6. Temperaturen richtig einordnen
 
-## 6. Temperatursensoren und ihre Aufgaben
+| Temperaturanzeige | Bedeutung |
+| --- | --- |
+| Interner Heizstabfühler | Temperatur im Bereich des Heizstabs. |
+| Externer Heizstab-/Pufferfühler | Temperatur am externen Messpunkt des Puffers. |
+| Warmwasserspeicher | Tatsächliche Temperatur am Fühler des Warmwasserspeichers. |
 
-| Sensor / Datenpunkt | Anzeige / Bedeutung | Wird verwendet für |
-| --- | --- | --- |
-| `modbus.2.holdingRegisters.1.1001_(R)_Temperatur_Sensor_intern` | Interner Heizstabfühler | Maximaltemperatur, Zusatz-Freigabe bei Schichtung, harte Übertemperaturüberwachung intern; Plausibilitätsprüfung im Selbsttest. |
-| `modbus.2.holdingRegisters.1.1030_Temp_2` | Externer Heizstab-/Pufferfühler | Maximaltemperatur, Hysterese-Freigabe, Zusatz-Freigabe bei Schichtung, harte Übertemperatur extern, PV-/WW-Regelung als Speicher-/Pufferwert. |
-| `alias.0.Heizung.Speicher_Warmwasser.ACTUAL` | Warmwasser-Isttemperatur | Speicherladepumpe: Sicherheitsabschaltung ab 60 °C, Zieltemperaturbewertung und Umladelogik. |
-| `0_userdata.0.Heizstab.V2.Parameter.WW_Zieltemperatur` | Einstellbarer Sollwert | Zielwert für Warmwasser-Sicherstellung und Speicherladepumpe. |
-| `0_userdata.0.Heizstab.V2.Parameter.DeltaT_Regelbereich` | Einstellbare Hysterese | Freigabe nach Maximaltemperatur und Einschaltpunkt der Warmwasser-Sicherstellung. |
+Die Werte können unterschiedlich sein, weil sich warmes Wasser im Speicher schichtet und die Fühler an unterschiedlichen Stellen messen. Die Temperatur am Puffer ist deshalb nicht automatisch gleich der Warmwassertemperatur.
 
+### Maximaltemperatur erreicht
 
-### Zusatz-Freigabe bei Wärmeschichtung
+Bei Erreichen der normalen Maximaltemperatur stoppt der Heizstab automatisch. Mit 75 °C Maximaltemperatur und 5 °C Temperaturabstand ist eine erneute Freigabe bei 70 °C am externen Fühler möglich.
 
-Im Speicher kann sich Wärme schichten: oben bzw. am externen Fühler ist es bereits sehr warm, während tiefer im Speicher bzw. am internen Heizstabfühler noch deutlich kühlere Bereiche vorhanden sind. Damit nicht nur ein kleiner Speicherbereich heiß bleibt, gibt es zusätzlich zur normalen MaxTemp-Hysterese eine Schichtungs-Freigabe.
+Eine zusätzliche automatische Freigabe ist möglich, wenn der interne Fühler mehr als 10 °C kühler als der externe Fühler ist. Daher kann der Heizstab nach einem temperaturbedingten Stopp wieder anlaufen. Die Temperaturüberwachung bleibt aktiv.
 
-Wenn der Heizstab wegen `Parameter.MaxTemp` ausgeschaltet wurde, darf er wieder einschalten, sobald der interne Sensor mehr als `10 K` kühler als der externe Sensor ist. Dadurch wird die Wärmeschichtung gezielt gebrochen und das komplette Speichervolumen kann besser auf eine hohe Temperatur gebracht werden. Die Sicherheitsgrenze bleibt trotzdem aktiv: Erreicht anschließend wieder einer der beiden Sensoren `Parameter.MaxTemp`, wird der Heizstab erneut ausgeschaltet.
+### Übertemperatur
 
-### Unterschied Maximaltemperatur und Übertemperatur
+Übertemperatur führt zur sofortigen Abschaltung und einer Störungsmeldung. Erst nach ausreichender Abkühlung ist eine Quittierung möglich. Bei wiederholter Übertemperatur die Anlage prüfen lassen.
 
-| Schutz | Default | Wirkung |
-| --- | ---: | --- |
-| Normale Maximaltemperatur `Parameter.MaxTemp` | 75 °C | Heizstab wird ausgeschaltet, wenn intern oder extern die Maximaltemperatur erreicht ist. Freigabe erfolgt weiterhin über die bestehende Hysterese, z. B. bei 75 °C und 5 K wieder bei 70 °C am externen Sensor. Zusätzlich wird freigegeben, wenn intern mehr als 10 K kühler als extern ist. |
-| Harte Übertemperatur intern/extern | 97 °C | Sofortabschaltung ohne Rampe. Fehler ist erst quittierbar, wenn die Temperaturen wieder unter den Grenzwerten liegen. |
-
----
-
-## 7. Pumpen
+## 7. Pumpen bedienen
 
 ### Speicherladepumpe
 
-Die Speicherladepumpe transportiert Wärme zwischen Puffer und Warmwasserspeicher. Ihr Zustand wird über **`0_userdata.0.Heizung.Speicherladepumpe.Status`** angezeigt.
+Die Speicherladepumpe transportiert Wärme zwischen Puffer und Warmwasserspeicher.
 
-Einstellbare Bedienung:
-
-| Datenpunkt | Bedeutung |
+| Auswahl | Bedeutung |
 | --- | --- |
-| `0_userdata.0.Heizung.Speicherladepumpe.ManualMode` | `AUTO`, `ON` oder `OFF`. `AUTO` ist Normalbetrieb. |
-| `shelly.1.shellyprorgbwwpm#ece334f93c48#1.RGB0.Switch` | Bypass/Schlüsselschalter. Bei aktivem Bypass steuert der Kessel bzw. die externe Logik; die Skript-Soll/Ist-Abweichung wird nicht bewertet. |
+| AUTO | Normalbetrieb: Die Anlage entscheidet anhand von Betriebsart, Freigabe und Temperaturen. |
+| ON | Manuell eingeschaltet; die Sicherheitsabschaltung bleibt wirksam. |
+| OFF | Manuell ausgeschaltet. |
 
-Wichtige Anzeigen:
+Für den Alltag **AUTO** verwenden.
 
-| Datenpunkt | Bedeutung |
-| --- | --- |
-| `0_userdata.0.Heizung.Speicherladepumpe.Status` | Sollzustand der Pumpe. |
-| `0_userdata.0.Heizung.Speicherladepumpe.Ist` | Rückgemeldeter Istzustand vom Schütz. |
-| `0_userdata.0.Heizung.Speicherladepumpe.SollIstFehler` | `true`, wenn Soll und Ist nicht zusammenpassen und kein Bypass aktiv ist. |
-| `0_userdata.0.Heizung.Speicherladepumpe.FehlerShellyOffline` | `true`, wenn der Shelly länger als 10 s offline ist. |
-| `0_userdata.0.Heizung.Speicherladepumpe.SicherheitsabschaltungAktiv` | `true`, wenn Übertemperatur oder ein ungültiger WW-Fühler die Pumpe fail-safe ausgeschaltet hat. |
-| `0_userdata.0.Heizung.Speicherladepumpe.Parameter.SicherheitsabschaltungEin` | Abschalttemperatur für die WW-Sicherheitsabschaltung, Reset automatisch 2 K darunter, Default `60 °C`. |
+Im Automatikbetrieb endet die Ladung bei erreichter Warmwasser-Zieltemperatur. Die Sicherheitsabschaltung begrenzt die Ladung zusätzlich, standardmäßig auf 60 °C. Die Freigabe erfolgt nach Abkühlung um 2 °C, standardmäßig bei 58 °C oder darunter. Auch im manuellen Betrieb bleibt diese Abschaltung wirksam. Ist eine höhere Zieltemperatur eingestellt, bleibt die Sicherheitsgrenze maßgeblich.
 
-Verhalten:
+Bei einem ungültigen Warmwasser-Temperaturwert schaltet die Pumpe zum Schutz aus. Wenn der Heizstab aus ist und der Puffer nicht genügend Wärme liefern kann, vermeidet die Automatik unnötiges Umladen.
 
-- Bei Warmwasser-Isttemperatur ab `Parameter.SicherheitsabschaltungEin` (Default 60 °C) schaltet die Pumpe aus.
-- Freigabe nach dieser Sicherheitsabschaltung erst wieder 2 K unter `Parameter.SicherheitsabschaltungEin` (Default: Reset bei 58 °C) oder darunter.
-- Der separate Freigabe-DP entfällt; der Reset wird immer aus der Abschalttemperatur minus 2 K berechnet.
-- Wenn der Warmwasserfühler ungültig oder nicht plausibel ist, schaltet die Pumpe fail-safe aus, damit kein vorheriger EIN-Zustand weiterläuft.
-- In `AUTO` schaltet die Pumpe weiterhin bei erreichter WW-Zieltemperatur ab. Nur `ManualMode = ON` darf bis zur Sicherheitsabschaltung laden.
-- Liegt die WW-Zieltemperatur über der Sicherheitsabschaltung, nutzt `AUTO` die Sicherheitsabschaltung als effektive Zielgrenze; `ManualMode = ON` darf nur bis zur Sicherheitsabschaltung laden.
-- Die Soll-/Ist-Überwachung wartet nach jedem Sollwertwechsel 500 ms, damit das Schütz anziehen oder abfallen kann.
-- Im `Kesselbetrieb` und `Unterstützungsbetrieb` folgt sie der externen Kessel-/Logikfreigabe, solange die AUTO-Zieltemperatur noch nicht erreicht ist.
-- Im `Heizstabbetrieb` arbeitet sie temperaturgeführt.
-- Wenn der Heizstab aus ist und der Puffer die Zieltemperatur nicht erreichen kann, wird nicht unnötig umgeladen.
+Ist der Bypass beziehungsweise Schlüsselschalter aktiv, übernimmt der Kessel beziehungsweise die externe Steuerung die Ansteuerung.
 
-### Heizkreispumpe
+### Heizkreispumpe und Warmwasser-Vorrang
 
-Die Heizkreispumpe wird über ein Stromstoßrelais geschaltet. Die Steuerung sendet nur kurze Toggle-Impulse; der reale Zustand kommt über die Rückmeldung.
+Im Heizstabbetrieb hat die automatische Warmwasserladung Vorrang: Während die Speicherladepumpe in **AUTO** läuft, kann die Heizkreispumpe ausgeschaltet sein. Nach dem Ende der Ladung wird ihr vorheriger Zustand wiederhergestellt.
 
-Einstellbare Bedienung:
+Eine manuell ein- oder ausgeschaltete Speicherladepumpe löst diesen automatischen Vorrang nicht aus. Der tatsächliche Zustand der Heizkreispumpe ist an der Pumpenanzeige erkennbar.
 
-| Datenpunkt | Bedeutung |
-| --- | --- |
-| `0_userdata.0.Heizung.Heizkreispumpe.manualRequest` | Manueller Wunsch `true = EIN`, `false = AUS`. |
+### Automatischer Sommerlauf
 
-Wichtige Anzeigen:
+Außerhalb der Heizperiode läuft die Heizkreispumpe regelmäßig kurz, damit sie nicht festsetzt:
 
-| Datenpunkt | Bedeutung |
-| --- | --- |
-| `0_userdata.0.Heizung.Heizkreispumpe.state` | Realer Zustand der Heizkreispumpe. |
-| `0_userdata.0.Heizung.Heizkreispumpe.lastAction` | Letzte Aktion oder Diagnosemeldung. |
-| `0_userdata.0.Heizung.Heizkreispumpe.shellyOffline` | Shelly offline; Pumpe kann nicht zuverlässig gesteuert werden. |
-| `0_userdata.0.Heizung.Heizkreispumpe.speicherladepumpePriorityActive` | Warmwasser-Vorrang aktiv. |
+- Vorgesehen ist ein Lauf alle sieben Tage für 15 Minuten.
+- Bevorzugt startet er bei einer Puffertemperatur ab 85 °C.
+- Wird diese Temperatur nach einem Tag Wartezeit nicht erreicht, wird der Lauf zum nächsten Mittag um 12:00 Uhr erzwungen.
 
-Verhalten nach Betriebsart:
-
-| Betriebsart | Heizkreispumpe |
-| --- | --- |
-| `Unterstützungsbetrieb` | Ein. |
-| `Heizstabbetrieb` | Ein, außer während automatischem Speicherladepumpen-Vorrang (`ManualMode = AUTO` und Speicherladepumpe läuft). |
-| `Kesselbetrieb` | Aus. |
-
-Wenn die Speicherladepumpe im Heizstabbetrieb automatisch (`ManualMode = AUTO`) startet, wird der vorherige Zustand der Heizkreispumpe gespeichert. Danach wird die Heizkreispumpe ausgeschaltet, damit Warmwasser Vorrang hat. Wenn die Speicherladepumpe wieder aus ist, wird der vorherige Zustand wiederhergestellt. Manuelles `ON` oder `OFF` der Speicherladepumpe löst keinen Warmwasser-Vorrang aus und schaltet die Heizkreispumpe nicht um.
-
-#### Sommer-Freilauf
-
-Damit die Heizkreispumpe außerhalb der Heizperiode nicht festsetzt, besitzt sie einen automatischen Sommer-Freilauf:
-
-- Prüfung alle 15 Minuten.
-- Geplanter Freilauf alle 7 Tage.
-- Laufzeit 15 Minuten.
-- Bevorzugter Start erst bei Puffertemperatur ab 85 °C.
-- Wenn diese Temperatur nach 1 Tag Wartezeit nicht erreicht wurde, wird der Freilauf zum nächsten Mittag um 12:00 Uhr erzwungen.
-
-Anzeigen dazu liegen unter `0_userdata.0.Heizung.Heizkreispumpe.summerExercise.*`, z. B. letzter Lauf, aktiver Freilauf und nächste Fälligkeit.
+Ein kurzer Pumpenlauf ohne aktuellen Heizbedarf kann deshalb normal sein.
 
 ### Warmwasser-Zirkulationspumpe
 
-Die Warmwasser-Zirkulationspumpe läuft unabhängig von der Heizstableistungsregelung. Sie kann zeitgesteuert oder manuell betrieben werden.
+Die Zirkulationspumpe sorgt für die Umwälzung des Warmwassers und arbeitet unabhängig von der Heizstableistung.
 
-Alle Bedien-Datenpunkte liegen unter **`0_userdata.0.Heizung.WW-Pumpe.`**.
-
-| Datenpunkt | Bedeutung |
+| Auswahl oder Anzeige | Bedeutung |
 | --- | --- |
-| `Start` | Startet die Pumpe im Automatikmodus für die eingestellte Laufzeit. |
-| `LaufzeitMin` | Laufzeit in Minuten; Default 30 min. |
-| `RestlaufzeitMin` | Anzeige der verbleibenden Laufzeit. |
-| `Manuell` | `auto`, `on` oder `off`. |
-| `Status` | `Bereit`, `EIN: x`, `Manuell AN`, `Manuell AUS` oder `Offline`. |
+| Automatik | Ein Start beziehungsweise Tastendruck lässt die Pumpe für die eingestellte Laufzeit laufen. |
+| Manuell an | Die Pumpe bleibt eingeschaltet, sofern das Steuergerät erreichbar ist. |
+| Manuell aus | Die Pumpe bleibt ausgeschaltet. |
+| Laufzeit | Dauer eines automatischen Laufs; standardmäßig 30 Minuten. |
+| Restlaufzeit | Verbleibende Zeit des aktuellen Laufs. |
+| Offline | Das Steuergerät ist nicht erreichbar; ein Start ist nicht möglich. |
 
-Verhalten:
+## 8. Lufttrockner
 
-- In `auto` startet ein Tastendruck oder `Start` den Timer.
-- In `on` bleibt die Pumpe dauerhaft an, sofern der Shelly online ist.
-- In `off` bleibt sie aus.
-- Wenn der Shelly offline ist, startet sie nicht und zeigt `Offline`.
+Der Lufttrockner nutzt PV-Überschuss, wenn seine Freigabe eingeschaltet ist. Ohne Freigabe bleibt er aus.
 
+Die Automatik wartet bei ausreichendem Überschuss 15 Minuten bis zum Einschalten. Bei zu wenig Überschuss wartet sie ebenfalls 15 Minuten bis zum Ausschalten. Dadurch führen kurze Wetterwechsel nicht sofort zu einem Schaltvorgang.
 
-### Lufttrockner
+Nach der dritten automatischen Abschaltung wegen fehlendem PV-Überschuss bleibt der Lufttrockner bis Mitternacht gesperrt. Der Grund wird im Status angezeigt; diese Abschaltungen und die Tagessperre lösen keine Push-Benachrichtigung aus.
 
-Der Lufttrockner ist ein zusätzlicher PV-Verbraucher. Er wird über die VIS-Freigabe eingeschaltet, wenn genug PV-Überschuss für längere Zeit vorhanden ist.
+Ab ungefähr 60 °C Puffertemperatur kann die Anlage einen Teil des PV-Stroms für den Lufttrockner reservieren. Der Heizstab kann mit verringerter Leistung weiterarbeiten, wenn genügend Strom für beide verfügbar ist.
 
-Wichtige Bedien- und Anzeige-Datenpunkte:
+### Hinweis auf vollen Tank oder ausgeschaltetes Gerät
 
-| Datenpunkt | Bedeutung |
+Bei entsprechendem Rückgang der Leistungsaufnahme kann eine Meldung auf einen vollen Tank oder ein ausgeschaltetes Gerät hinweisen. Tank und Gerätezustand prüfen.
+
+Pro Ereignis wird die Push-Benachrichtigung einmal gesendet. Erst wenn das Gerät wieder eine Leistungsaufnahme zeigt, kann ein neues Ereignis erneut gemeldet werden.
+
+Bei ausbleibendem Start die Freigabe, den angezeigten Schaltgrund, den PV-Überschuss und eine mögliche Tagessperre prüfen.
+
+## 9. LED- und Ampelanzeigen
+
+| Anzeige | Bedeutung |
 | --- | --- |
-| `0_userdata.0.Heizung.Lufttrockner.Freigabe` | Anwenderfreigabe. Ohne Freigabe bleibt der Lufttrockner aus. |
-| `0_userdata.0.Heizung.Lufttrockner.IstLaeuft` | Zeigt anhand der gemessenen Leistung, ob das Gerät wirklich läuft. |
-| `0_userdata.0.Heizung.Lufttrockner.Status` | Klartextstatus. |
-| `0_userdata.0.Heizung.Lufttrockner.LetzterSchaltgrund` | Letzter Schalt- oder Sperrgrund. |
-| `0_userdata.0.Heizung.Lufttrockner.AbschaltungenHeute` | Anzahl automatischer PV-Abschaltungen am aktuellen Tag; PV-Abschalt-/Tagessperren erzeugen keine Pushover-Meldungen mehr. |
-| `0_userdata.0.Heizung.Lufttrockner.TagessperreAktiv` | Aktiv nach 3 automatischen PV-Abschaltungen; Reset um Mitternacht. |
-| `0_userdata.0.Heizung.Lufttrockner.TankMeldungAktiv` | Hinweis auf Tank voll oder ausgeschaltetes Gerät bei Leistungsabfall; Pushover geht über `pushover.0` als Systemmeldung, wird pro Ereignis nur einmal gesendet und erst nach wieder erkannter Leistungsaufnahme zurückgesetzt. |
-| `0_userdata.0.Heizung.Lufttrockner.HeizstabPauseAktiv` | Zeigt, dass eine Heizstab-Reserve angefordert wird. |
+| Grün | Bereit beziehungsweise Standby bei zu wenig PV-Überschuss, sofern die Standby-Anzeige eingeschaltet ist. |
+| Gelb | Heizstab arbeitet im normalen PV-Betrieb. |
+| Rot | Störung aktiv. Die genaue Ursache steht in der Meldungstabelle. |
+| Grün und Gelb | Warmwasser-Sicherstellung aktiv oder wartend. |
+| Alle blinken | Selbsttest läuft. |
+| Alle aus | Regelung manuell deaktiviert oder kein besonderer Anzeigezustand. |
 
-Verhalten:
+Blinkt die Quittieranzeige, liegt eine quittierbare Störung vor. Vor dem Quittieren die Meldung lesen und ihre Ursache prüfen.
 
-- Einschalten erst bei ausreichend PV-Überschuss über 15 Minuten.
-- Ausschalten erst bei zu wenig PV über 15 Minuten.
-- Nach der 3. automatischen PV-Abschaltung wird bis Mitternacht gesperrt; diese PV-/Tagessperren-Hinweise werden nur noch im Status/Schaltgrund geführt und nicht mehr per Pushover verschickt.
-- Bei Tank-/Gerätemeldung bleibt die Meldesperre auch dann aktiv, wenn der Shelly im Auto-Modus später wegen PV-Mangel ausgeschaltet wird; zurückgesetzt wird sie erst bei wieder erkannter Leistungsaufnahme.
-- Ab ca. 60 °C Puffertemperatur darf der Lufttrockner beim Hauptskript eine Leistungsreserve anfordern.
-- Der Heizstab kann dann reduziert weiterlaufen, solange genug PV-Strom für beide Verbraucher verfügbar ist.
+## 10. Meldungen und Störungen
 
----
-
-## 8. LED- und Ampelanzeigen
-
-Die Ampel wird intern unter **`0_userdata.0.Heizstab.V2.Ampel.*`** geführt und zusätzlich auf GPIO-Ausgänge gespiegelt.
-
-| Farbe | GPIO | Bedeutung |
+| Meldung | Bedeutung | Was tun? |
 | --- | --- | --- |
-| Grün | `0_userdata.0.System.GPIO.GPIO22` | Standby/Bereit bei zu wenig Überschuss, wenn Standby-Anzeige aktiviert ist. |
-| Gelb | `0_userdata.0.System.GPIO.GPIO23` | Heizstab aktiv im normalen PV-Betrieb. |
-| Rot | `0_userdata.0.System.GPIO.GPIO24` | Fehler, Übertemperatur, FI/LS-Fehler, PWM-Fehler oder Leistungsabweichung. |
-| Grün + Gelb | GPIO22 + GPIO23 | Warmwasser-Sicherstellung aktiv oder wartend. |
-| Alle blinken | GPIO22 + GPIO23 + GPIO24 | Selbsttest aktiv. |
-| Alle aus | - | Regelung manuell deaktiviert oder kein besonderer Anzeigezustand. |
+| Regelung manuell deaktiviert | Der Heizstab ist nicht freigegeben. | Heizstabfreigabe einschalten, wenn Heizbetrieb gewünscht ist. |
+| Regelung aktiv | Der Heizstab nutzt PV-Überschuss. | Keine Aktion erforderlich. |
+| Überschuss zu gering | Für den PV-Heizbetrieb fehlt Leistung. | Auf mehr PV-Überschuss warten. |
+| Maximaltemperatur erreicht | Der Heizstab pausiert temperaturbedingt. | Keine Quittierung nötig; die Freigabe erfolgt automatisch, wenn die Temperaturbedingungen erfüllt sind. |
+| Warmwasser-Sicherstellung aktiv oder wartend | Die Sicherstellung heizt oder wartet auf ihren Einschaltpunkt. | Prüfen, ob diese Funktion gewünscht ist. |
+| Übertemperatur | Der Heizstab wurde sofort abgeschaltet. | Abkühlen lassen und Ursache prüfen lassen; anschließend quittieren, sobald möglich. |
+| FI/LS aus | Der elektrische Schutzschalter meldet keine Freigabe. | Ursache durch eine fachkundige Person prüfen lassen. Nach Behebung gegebenenfalls quittieren. |
+| Heizleistung weicht vom erwarteten Wert ab | Der Heizstab ist gesperrt. | Bei erneutem Auftreten nach automatischem Rücksetzversuch den Anlagenbetreuer hinzuziehen. Nach Ursachenbehebung quittieren. |
+| Heizstabsteuerung nicht erreichbar oder gestört | Die Heizleistung wird abgeschaltet. | Verbindung und Gerät durch den Anlagenbetreuer prüfen lassen. |
+| Gerät offline, Wartezeit läuft | Ein Gerät ist vorübergehend nicht erreichbar. | Bei anhaltender Meldung Verbindung prüfen lassen. |
+| Gerät offline nach Wartezeit | Der Heizstab bleibt aus. | Erreichbarkeit wiederherstellen lassen. |
+| Alle Geräte wieder online | Die Verbindung ist wieder vorhanden. | Status auf weitere Meldungen prüfen. |
+| Nachtmodus | Zwischen 22:00 und 04:00 Uhr sind bestimmte Erreichbarkeitsprüfungen pausiert. | Keine Aktion erforderlich. |
+| Kesselbetrieb | Der Heizstab ist aufgrund der Betriebsart aus. | Bei gewünschtem Heizstabbetrieb Betriebsart ändern und Heizstabfreigabe prüfen. |
 
-Zusätzlich gibt es **`Regelung.QuittierTaster_Blink`**. Dieser Datenpunkt blinkt, wenn ein Fehler quittierbar ist.
+Für eine Rückfrage den genauen Meldungstext, Fehlercode und Zeitpunkt bereithalten.
 
----
+## 11. Störung quittieren
 
-## 9. Fehler und typische Meldungen
+1. Die Meldung in der Visualisierung lesen.
+2. Die Ursache beheben beziehungsweise durch eine Fachkraft beheben lassen.
+3. Bei Übertemperatur ausreichende Abkühlung abwarten.
+4. Sobald der Status **QUITTIERBAR** erscheint, **Quittieren** betätigen.
+5. Prüfen, ob die Störung verschwunden ist und die Anlage wieder den erwarteten Zustand zeigt.
 
-| Code | Bedeutung | Was passiert? | Was tun? |
-| --- | --- | --- | --- |
-| `RG001` | Regelung manuell deaktiviert | Heizstab aus. | `Regelung.ENABLE` einschalten, wenn Betrieb gewünscht ist. |
-| `RG003` | Regelung aktiv | Heizstab nutzt PV-Überschuss. | Normalzustand. |
-| `RG004` | Überschuss zu gering | Heizstab aus. | Warten auf mehr PV-Überschuss. |
-| `TP002` | Maximaltemperatur erreicht | Heizstab aus bis zur Hysterese-Freigabe oder bis zur Zusatz-Freigabe bei Schichtung. | Abkühlen lassen; bei starker Schichtung kann der Heizstab automatisch wieder anlaufen. |
-| `TP003` | Warmwasser-Sicherstellung aktiv/wartend | Heizstab heizt mit Sicherstellungsleistung oder wartet auf Einschaltpunkt. | Normal, wenn WW-Sicherstellung gewünscht ist. |
-| `TP004` | Harte Übertemperatur | Sofort aus, rote LED, Fehler zunächst nicht quittierbar. | Ursache prüfen; erst nach Abkühlung quittieren. |
-| `FI001` | FI/LS aus | Sofort aus, rote LED, Sperre. | FI/LS und Ursache prüfen; danach quittieren. |
-| `ABW001` | Istleistung weicht zu stark vom Soll ab | Heizstab gesperrt. | Heizstab/PWM/Leistung prüfen; wenn der einmalige Auto-Reset nicht dauerhaft funktioniert, kommt genau eine System-Pushover-Meldung über `pushover.0`; danach manuell quittieren. |
-| `PWM400` / `PWMERR` | PWM-Gerät offline oder Fehler | PWM auf 0, rote LED. | PWM-Gerät/Verbindung prüfen. |
-| `OFF010` | Gerät offline, Wartezeit läuft | Noch keine harte Abschaltung bis Wartezeit abgelaufen ist. | Verbindung prüfen. |
-| `OFF001` | Gerät offline nach Wartezeit | Heizstab aus. | Gerät wieder online bringen. |
-| `OFF000` | Alle Geräte wieder online | Regelung freigegeben. | Normalzustand nach Offline-Ereignis. |
-| `OFF090` | Nachtmodus Online-Checks pausiert | Online-Prüfung zwischen 22:00 und 04:00 pausiert. | Normal, keine Aktion nötig. |
-| `MODE001` | Kesselbetrieb | Heizstab deaktiviert. | Betriebsmodus ändern, wenn Heizstabbetrieb gewünscht ist. |
+Eine noch anstehende Ursache lässt sich nicht durch Quittieren beseitigen. Tritt die Störung erneut auf, die Anlage prüfen lassen.
 
----
+Zu wenig Überschuss und die normale Maximaltemperatur benötigen keine manuelle Quittierung.
 
-## 10. Quittieren und Reset
-
-Fehler werden unterschiedlich behandelt:
-
-- **Automatische Freigabe:** z. B. zu wenig Überschuss oder Maximaltemperatur mit Hysterese.
-- **Quittierbare Fehler:** z. B. Leistungsabweichung `ABW001`, wenn kein nicht quittierbarer Fehler parallel aktiv ist.
-- **Nicht quittierbare Fehler:** z. B. Übertemperatur oder FI/LS aus, solange die Ursache noch anliegt.
-
-Vorgehen:
-
-1. Meldung und Fehlercode in der Visualisierung lesen.
-2. Ursache physikalisch prüfen.
-3. Warten, bis der Fehlerstatus `QUITTIERBAR` ist.
-4. Button **Quittieren** bzw. `Regelung.Fail_Reset` betätigen.
-5. Prüfen, ob Status und LED wieder normal sind.
-
----
-
-## 11. Selbsttest und Kalibrierung
+## 12. Selbsttest und Kalibrierung
 
 ### Selbsttest
 
-Der Selbsttest prüft grundsätzlich, ob Sensoren plausibel sind und ob der Heizstab auf eine kleine Testleistung reagiert.
+Der Selbsttest prüft die Temperaturmessung und die Reaktion des Heizstabs auf eine kleine Testleistung.
 
-Ablauf für Anwender:
+Wenn die Funktion in der Bedienoberfläche angeboten wird:
 
 1. Sicherstellen, dass keine Störung anliegt.
-2. `Selbsttest.Start` betätigen.
+2. Den Selbsttest starten.
 3. Während des Tests blinken alle LEDs.
-4. Ergebnis im Status/Meldungslog prüfen.
+4. Das Ergebnis in der Statusanzeige beziehungsweise Meldungstabelle lesen.
 
-Mögliche Ergebnisse:
-
-- `ST003`: Selbsttest erfolgreich.
-- `ST002`: Selbsttest fehlgeschlagen, z. B. Leistungsabweichung.
-- `TP001`: Temperatursensor unplausibel.
+Bei fehlgeschlagenem Test oder einer unplausiblen Temperaturmessung den Anlagenbetreuer hinzuziehen.
 
 ### Kalibrierung
 
-Die Kalibrierung vermisst die Leistungskurve des Heizstabs. Sie fährt mehrere Leistungsstufen an und speichert Messwerte.
+Bei der Kalibrierung misst die Anlage das Verhalten des Heizstabs bei mehreren Leistungsstufen. Die normale Regelung pausiert dabei.
 
-Nur verwenden, wenn:
+Diese Funktion gehört zur Einrichtung und Betreuung der Anlage. Sie sollte nur nach Abstimmung mit dem Anlagenbetreuer, unter Aufsicht und bei ausreichender Wärmeabnahme verwendet werden. Für den täglichen Betrieb ist keine Kalibrierung erforderlich.
 
-- die Anlage sicher beaufsichtigt wird,
-- ausreichend Wärmeabnahme möglich ist,
-- keine Störung aktiv ist,
-- die elektrische Installation geprüft ist.
+## 13. Schnellhilfe
 
-Während der Kalibrierung wird die normale Regelung pausiert.
-
----
-
-## 12. Schnellcheck bei Problemen
-
-| Beobachtung | Mögliche Ursache | Prüfen |
-| --- | --- | --- |
-| Heizstab bleibt aus | `ENABLE` aus, Kesselbetrieb, zu wenig Überschuss, Sperre aktiv | `Regelung.Status`, `Regelung.ENABLE`, Betriebsmodus, Meldungslog. |
-| Rote LED | Fehler aktiv | Meldungstabelle und Fehlercode prüfen. |
-| Grün an, Heizstab aus | Standby / zu wenig Überschuss | PV-Leistung, Netzbezug, Status `RG004`. |
-| Grün + Gelb | Warmwasser-Sicherstellung | WW-Temperatur, Zieltemperatur und Delta-T prüfen. |
-| Pumpe läuft nicht | Manuell aus, Shelly offline, Bypass, Temperaturbedingung nicht erfüllt | Pumpenstatus, Online-Status, ManualMode, grüner Punkt in Visualisierung. |
-| Lufttrockner bleibt aus | Freigabe aus, zu wenig PV, Tagessperre aktiv, Shelly offline oder Tank-/Gerätemeldung | Lufttrockner-Status, letzter Schaltgrund, Freigabe und Abschaltungen heute prüfen. |
-| Speicherladepumpe läuft, Heizkreispumpe aus | Warmwasser-Vorrang | Normal im Heizstabbetrieb. |
-| Fehler lässt sich nicht quittieren | Ursache liegt noch an | Fehlerstatus und physikalische Ursache prüfen. |
+| Beobachtung | Zuerst prüfen |
+| --- | --- |
+| Heizstab bleibt aus | Heizstabfreigabe, Betriebsart, PV-Überschuss, Temperaturen und Meldungstabelle. |
+| Rote LED leuchtet | Meldungstext und Fehlerstatus lesen. |
+| Grün leuchtet, Heizstab ist aus | Möglicherweise normaler Standby wegen zu wenig PV-Überschuss. |
+| Grün und Gelb leuchten | Status der Warmwasser-Sicherstellung und Temperatur prüfen. |
+| Speicherladepumpe läuft, Heizkreispumpe ist aus | Im Heizstabbetrieb kann der automatische Warmwasser-Vorrang aktiv sein. |
+| Pumpe läuft nicht | Automatik-/Handbetrieb, Temperaturbedingungen, Bypass und Störungsmeldungen prüfen. |
+| Heizkreispumpe läuft kurz ohne Heizbedarf | Möglicherweise automatischer Sommerlauf. |
+| Lufttrockner bleibt aus | Freigabe, Schaltgrund, Überschuss, Tagessperre und Gerätezustand prüfen. |
+| Störung lässt sich nicht quittieren | Prüfen, ob die Ursache noch anliegt und der Status bereits QUITTIERBAR ist. |
