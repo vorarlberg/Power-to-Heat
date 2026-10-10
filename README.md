@@ -347,6 +347,12 @@ Ablauf:
 
 Die interne Ampel wird auf externe GPIOs gespiegelt:
 
+Bei jedem Ampel-Update werden der interne Visualisierungs-Datenpunkt und der
+zugehörige GPIO getrennt abgeglichen. Ein veralteter GPIO-Zustand wird dadurch
+korrigiert, auch wenn die Anzeige in der Visualisierung bereits richtig ist.
+Auch Änderungen eines GPIO-Datenpunkts außerhalb des Heizstabskripts lösen
+sofort einen erneuten Abgleich mit dem berechneten Ampelzustand aus.
+
 | LED | GPIO | Bedeutung |
 | --- | --- | --- |
 | Grün | GPIO22 | Standby/Bereit oder zusammen mit Gelb bei WW-Sicherstellung. |
