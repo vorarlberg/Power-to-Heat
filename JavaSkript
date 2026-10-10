@@ -1,6 +1,6 @@
 /************************************************************
  * Heizstab – Gesamtmodul (Regelung + Ampel + Kalibrierung + PWM + Selbsttest)
- * Version: 2.9.2  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
+ * Version: 2.9.4  (PWM über DP GPIO12 dutyPercent, LEDs über GPIO22/23/24, JSON-Log, Multi-Fehler-Handling + Quittier-Blink)
  * Features: Rampe 100 W/s, direkte externe DPs, Not-Aus ohne Rampe
  ************************************************************/
 
@@ -10,7 +10,7 @@
 
 // --- Skript-Version / Update-Meldung ---
 const SCRIPT = {
-    version: '2.9.2',
+    version: '2.9.4',
     updateNotificationText: 'Skript wurde auf Version {version} aktualisiert.'
 };
 
@@ -45,9 +45,9 @@ const LIMITS = {
     maxTempInternExternDiffReleaseK: 10, // Zusatz-Freigabe nach MaxTemp: intern muss mehr als 10 K kühler als extern sein
     uebertempInternDefault: 97,
     uebertempExternDefault: 97,
-    controllerTempWarnDefault: 70,
-    controllerTempKritischDefault: 85,
-    controllerTempReleaseDefault: 75
+    controllerTempWarnDefault: 80,
+    controllerTempKritischDefault: 90,
+    controllerTempReleaseDefault: 80
 };
 
 // --- Event-getriggerte Regelung (Debounce) ---
@@ -124,8 +124,8 @@ const RAMP = {
 // --- Sauberer Skript-Stopp / Update ---
 const SHUTDOWN = {
     enabled: true,
-    rampDownMs: 8000,        // maximale Zeit, die beim Skript-Stopp sanft auf 0 W geregelt wird
-    rampStepMs: 500,         // Schrittweite der Shutdown-Rampe
+    rampDownMs: 60000,       // maximale Zeit, die beim Skript-Stopp sanft auf 0 W geregelt wird
+    rampStepMs: 1000,        // Schrittweite der Shutdown-Rampe
     statusText: 'Skript wird sauber gestoppt/aktualisiert – Heizstab fährt kontrolliert herunter. [SYS999]'
 };
 
@@ -175,7 +175,8 @@ const BASE = '0_userdata.0.Heizstab.V2.';
 // --- Helper: State-Erzeugung (TS-safe via extendObject) ---
 function ensureStateRO(id, common) {
     if (!existsObject(id)) {
-        createState(id, 0, { ...common, read: true, write: false });
+        const initialValue = common.type === 'boolean' ? false : (common.type === 'string' ? '' : 0);
+        createState(id, initialValue, { ...common, read: true, write: false });
     } else {
         extendObject(id, { common: { read: true, write: false } });
     }
@@ -346,10 +347,10 @@ ensureStateNumRW(DP.controllerTempKrit, DEVICE_DIAG.controllerTempCriticalC, 'Co
 ensureStateNumRW(DP.controllerTempRelease, DEVICE_DIAG.controllerTempReleaseC, 'Controller-Temperatur Freigabe nach Störung', '°C', 20, 120);
 ensureStateBoolRW(DP.wwSicherAn, false, 'WW-Sicherstellung aktivieren');
 
-// interne Ampel-States (Anzeige)
-ensureStateBoolRW(DP.ledGruen, false, 'LED Grün (intern)');
-ensureStateBoolRW(DP.ledGelb, false, 'LED Gelb (intern)');
-ensureStateBoolRW(DP.ledRot, false, 'LED Rot (intern)');
+// interne Ampel-States sind reine Ausgaben für die Visualisierung
+ensureStateBoolRO(DP.ledGruen, 'LED Grün (intern, RO)');
+ensureStateBoolRO(DP.ledGelb, 'LED Gelb (intern, RO)');
+ensureStateBoolRO(DP.ledRot, 'LED Rot (intern, RO)');
 ensureStateBoolRW(DP.standbyBlinkEnable, true, 'Standby (Grün) aktiv');
 
 ensureStateStrRW(DP.kalDaten, '{}', 'Kalibrierdaten JSON');
@@ -512,9 +513,22 @@ function sendPushover(message, channel = 'system') {
     sendTo(adapter, payload);
 }
 
+function getStateValueSafe(id, fallback = '') {
+    try {
+        const state = existsObject(id) ? getState(id) : null;
+        if (!state || state.val === null || state.val === undefined) return fallback;
+        return state.val;
+    } catch (err) {
+        log(`[VERSION] Datenpunkt ${id} konnte nicht gelesen werden: ${err.message}`, 'warn');
+        return fallback;
+    }
+}
+
 function publishScriptVersionAndNotifyUpdate() {
-    const previousVersion = String(getState(DP.scriptVersion)?.val ?? '').trim();
-    const lastNotifiedVersion = String(getState(DP.scriptUpdateNotifiedVersion)?.val ?? '').trim();
+    const previousVersionRaw = getStateValueSafe(DP.scriptVersion, '');
+    const lastNotifiedVersionRaw = getStateValueSafe(DP.scriptUpdateNotifiedVersion, '');
+    const previousVersion = String(previousVersionRaw === 0 ? '' : previousVersionRaw).trim();
+    const lastNotifiedVersion = String(lastNotifiedVersionRaw === 0 ? '' : lastNotifiedVersionRaw).trim();
 
     setState(DP.scriptVersion, SCRIPT.version, true);
 
@@ -875,12 +889,17 @@ let _lastAutoLoggedStatus = '';
 // LED setzen: interne Anzeige + externe GPIO-DPs
 function _led(dp, val) {
     const v = !!val;
+    let gpioDp = null;
 
-    setState(dp, v, true);
+    if (dp === DP.ledGruen) gpioDp = LED_GPIO.gruen;
+    if (dp === DP.ledGelb)  gpioDp = LED_GPIO.gelb;
+    if (dp === DP.ledRot)   gpioDp = LED_GPIO.rot;
 
-    if (dp === DP.ledGruen) setState(LED_GPIO.gruen, v, true);
-    if (dp === DP.ledGelb)  setState(LED_GPIO.gelb,  v, true);
-    if (dp === DP.ledRot)   setState(LED_GPIO.rot,   v, true);
+    // Visualisierung und GPIO getrennt prüfen. So wird ein abweichender bzw.
+    // alter GPIO-Zustand auch dann korrigiert, wenn der interne Anzeige-DP
+    // bereits den richtigen Wert besitzt.
+    if (getState(dp)?.val !== v) setState(dp, v, true);
+    if (gpioDp && getState(gpioDp)?.val !== v) setState(gpioDp, v, true);
 }
 
 function _ampelReset() {
@@ -949,10 +968,11 @@ function updateAmpel() {
         _ampelBlinkTimer = null;
     }
 
-    // Nur schalten, wenn sich der Zustand ändert
-    if (getState(DP.ledGruen)?.val !== wantGreen) _led(DP.ledGruen, wantGreen);
-    if (getState(DP.ledGelb)?.val !== wantYellow) _led(DP.ledGelb, wantYellow);
-    if (getState(DP.ledRot)?.val !== wantRed) _led(DP.ledRot, wantRed);
+    // Alle drei Kanäle abgleichen. _led() schreibt nur tatsächlich abweichende
+    // Anzeige- oder GPIO-Zustände und hält damit reale LEDs und VIS synchron.
+    _led(DP.ledGruen, wantGreen);
+    _led(DP.ledGelb, wantYellow);
+    _led(DP.ledRot, wantRed);
 
     return;
 }
@@ -1141,6 +1161,13 @@ function updateAckBlink() {
 // Status-Reaktion
 on({ id: DP.status, change: 'any' }, () => updateAmpel());
 on({ id: DP.standbyBlinkEnable, change: 'ne' }, () => updateAmpel());
+
+// Wird ein GPIO außerhalb dieses Skripts verändert, sofort wieder mit dem
+// berechneten Ampelzustand synchronisieren. Das verhindert insbesondere eine
+// real leuchtende grüne LED bei gleichzeitig ausgeschalteter VIS-Anzeige.
+[LED_GPIO.gruen, LED_GPIO.gelb, LED_GPIO.rot].forEach(id => {
+    on({ id, change: 'ne' }, () => updateAmpel());
+});
 
 
 /* ==========================================================
@@ -1940,7 +1967,7 @@ function gracefulShutdown(done) {
     tick();
 }
 
-onStop(gracefulShutdown, SHUTDOWN.rampDownMs + 2000);
+onStop(gracefulShutdown, SHUTDOWN.rampDownMs + 5000);
 
 /* ==========================================================
    9) INITIALISIERUNG
